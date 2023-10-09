@@ -1,7 +1,10 @@
 lightning_logs
 __pycache__
-.pytest_cache
 **/*.egg-info
+
+.pytest_cache
+coverage.xml
+.coverage
 
 *.extxyz
 *.npz
