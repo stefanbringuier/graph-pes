@@ -8,7 +8,7 @@ jobs:
         steps:
             - uses: actions/checkout@v3
             - uses: actions/setup-python@v3
-            - name: Install locache
+            - name: Install graph-pes
               run: pip install -e ".[dev]"
             - name: Run tests
               run: pytest --cov src --cov-report xml

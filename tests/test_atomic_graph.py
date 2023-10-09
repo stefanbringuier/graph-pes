@@ -1,8 +1,13 @@
 import numpy as np
 import pytest
+import torch
 from ase import Atoms
 
-from graph_pes.data.atomic_graph import AtomicGraph, convert_to_atomic_graph
+from graph_pes.data.atomic_graph import (
+    AtomicGraph,
+    convert_to_atomic_graph,
+    convert_to_atomic_graphs,
+)
 
 ISOLATED_ATOM = Atoms("H", positions=[(0, 0, 0)], pbc=False)
 PERIODIC_ATOM = Atoms("H", positions=[(0, 0, 0)], pbc=True, cell=(1, 1, 1))
@@ -13,7 +18,7 @@ RANDOM_STRUCTURE = Atoms(
     cell=np.eye(3),
 )
 STRUCTURES = [ISOLATED_ATOM, PERIODIC_ATOM, RANDOM_STRUCTURE]
-GRAPHS = [convert_to_atomic_graph(s, cutoff=1.0) for s in STRUCTURES]
+GRAPHS = convert_to_atomic_graphs(STRUCTURES, cutoff=1.0)
 
 
 @pytest.mark.parametrize("structure, graph", zip(STRUCTURES, GRAPHS))
@@ -46,3 +51,18 @@ def test_random_structure():
     assert graph.n_atoms == 8
 
     assert np.linalg.norm(graph.neighbour_vectors, axis=-1).max() <= 1.0
+
+
+def test_warning_on_position():
+    # check that a warning is raised if the user tries to access the positions
+    # directly
+    with pytest.warns(UserWarning):
+        GRAPHS[0].positions
+
+
+def test_device_casting():
+    # check that the graph can be moved to a device
+    graph = GRAPHS[0]
+    cpu_graph = graph.to("cpu")
+    assert cpu_graph is not graph
+    assert cpu_graph._positions.device == torch.device("cpu")
