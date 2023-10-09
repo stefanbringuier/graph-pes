@@ -1,0 +1,10 @@
+lightning_logs
+__pycache__
+.pytest_cache
+**/*.egg-info
+
+*.extxyz
+*.npz
+
+.vscode
+.isort.cfg
