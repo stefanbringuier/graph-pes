@@ -5,7 +5,7 @@ from torch_geometric.nn import MessagePassing
 from graph_pes.data.atomic_graph import AtomicGraph
 
 from .activations import ShiftedSoftplus
-from .mlp import MLP
+from .util import MLP
 from .distances import GaussianSmearing
 from .base import GraphPESModel
 

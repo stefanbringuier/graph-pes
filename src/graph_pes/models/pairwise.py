@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from torch import scalar_tensor as scalar
 
-from graph_pes.models.mlp import MLP
+from graph_pes.models.util import MLP
 from graph_pes.util import MAX_Z
 
 from .base import PairPotential, SimplePairPotential

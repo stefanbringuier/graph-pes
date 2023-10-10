@@ -12,6 +12,17 @@ from graph_pes.data.batching import AtomicGraphBatch
 LossMetric = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 
+class RMSELoss(torch.nn.MSELoss):
+    def __init__(self, *args, eps: float = 1e-8, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register_buffer("eps", torch.scalar_tensor(eps))
+
+    def forward(
+        self, input: torch.Tensor, target: torch.Tensor
+    ) -> torch.Tensor:
+        return (super().forward(input, target) + self.eps).sqrt()
+
+
 @dataclass
 class Loss:
     target: str
@@ -66,6 +77,6 @@ class WeightedLoss(Loss):
 
 def default_losses() -> list[Loss]:
     return [
-        Loss("energy", torch.nn.MSELoss()),
-        Loss("forces", torch.nn.MSELoss()),
+        Loss("energy", RMSELoss()),
+        Loss("forces", RMSELoss()),
     ]

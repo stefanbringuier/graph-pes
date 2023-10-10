@@ -1,0 +1,11 @@
+-   [ ] consistent naming
+-   [ ] shape typing of tensor
+-   [ ] EAM potential
+-   [ ] util for creating consistent reprs.
+-   [ ] get rid of contant un/squeeze
+-   [ ] isolated atoms
+-   [ ] tests
+-   [ ] docs
+-   [ ] `nn.PositiveParameter` and `nn.BoundedParameter`
+-   [ ] get rid of "energy" and "force" magic strings
+-   [ ] spline potential: learn the positions of the knots -> easier SR.

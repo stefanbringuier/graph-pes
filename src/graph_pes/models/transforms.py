@@ -14,6 +14,39 @@ from graph_pes.util import MAX_Z, to_chem_symbol
 from abc import ABC, abstractmethod
 
 
+def guess_local_energy_mean_and_std(
+    graphs: list[AtomicGraph], per_species_std: bool = False
+):
+    r"""
+    Estimate the per-species mean and stdev of the local energies.
+    """
+
+    batch = AtomicGraphBatch.from_graphs(graphs)
+    total_energy = batch.labels["energy"]
+
+    # calculate the matrix `N` where N[i,j] is the number of atoms
+    # of species j in structure i
+    N = torch.zeros(len(graphs), MAX_Z + 1)
+    for i, g in enumerate(graphs):
+        for j, z in enumerate(torch.unique(g.Z)):
+            N[i, z] = (g.Z == z).sum()
+
+    # use linear regression to get the offsets
+    mean_local_energy = torch.linalg.lstsq(N, total_energy).solution
+
+    # now to guess the scales
+    # for now we just get the std and assign it to all species
+    mean_total_energy: torch.Tensor = (N @ mean_local_energy).squeeze()
+    n_atoms_per_structure = batch.ptr[1:] - batch.ptr[:-1]
+    squared_residuals = (total_energy - mean_total_energy).pow(2)
+    scaled_residuals = squared_residuals / n_atoms_per_structure
+    per_atom_var = scaled_residuals / n_atoms_per_structure.pow(0.5)
+    std = per_atom_var.mean().sqrt()
+    sigma = torch.ones(MAX_Z + 1) * std
+
+    return mean_local_energy, sigma
+
+
 class LocalEnergyTransform(nn.Module):
     r"""
     An optionally learnable per-species transformation of local energies:
@@ -36,25 +69,8 @@ class LocalEnergyTransform(nn.Module):
 
     def fit_to(self, graphs: list[AtomicGraph]):
         # tricky
-        # for now, just do best guess based on linear reg
-        batch = AtomicGraphBatch.from_graphs(graphs)
-        total_energy = batch.labels["energy"]
-
-        # get the matrix `N` where N[i,j] is the number of atoms of species j
-        # in structure i
-        N = torch.zeros(len(graphs), MAX_Z + 1)
-        for i, g in enumerate(graphs):
-            for j, z in enumerate(torch.unique(g.Z)):
-                N[i, z] = (g.Z == z).sum()
-
-        offsets = torch.linalg.lstsq(N, total_energy).solution
-        self.mu = nn.Parameter(offsets, self.trainable)
-
-        # now to guess the scales
-        # for now we just get the std and assign it to all species
-        mean_energies = (N @ offsets).squeeze()
-        std = (total_energy - mean_energies).std()
-        sigma = torch.ones(MAX_Z + 1) * std
+        mu, sigma = guess_local_energy_mean_and_std(graphs)
+        self.mu = nn.Parameter(mu, self.trainable)
         self.sigma = nn.Parameter(sigma, self.trainable)
 
     def __repr__(self):
@@ -106,6 +122,10 @@ class EnergyNormaliser(PreLossNormaliser):
     where :math:`N` is the number of atoms in the structure.
     """
 
+    def __init__(self):
+        super().__init__()
+        self.sigma = torch.ones(MAX_Z + 1)
+
     def forward(
         self, total_energy: torch.Tensor, graph: AtomicGraph | AtomicGraphBatch
     ) -> torch.Tensor:
@@ -114,10 +134,16 @@ class EnergyNormaliser(PreLossNormaliser):
         else:
             atoms_per_structure = torch.scalar_tensor(graph.n_atoms)
 
-        return total_energy / atoms_per_structure.sqrt()
+        # sigma is the stddev of the local energies
+        # calculated as the sqrt of the sum of the squares of the stddevs
+        # of the local energies per species
+        sigma = sum_per_structure(self.sigma[graph.Z].pow(2), graph).sqrt()
+
+        return total_energy / atoms_per_structure.sqrt() / sigma
 
     def fit_to(self, graphs: list[AtomicGraph]):
-        pass
+        _, sigma = guess_local_energy_mean_and_std(graphs)
+        self.sigma = sigma
 
 
 class ForceNormaliser(PreLossNormaliser):

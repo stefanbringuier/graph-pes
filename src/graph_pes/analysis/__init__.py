@@ -8,6 +8,7 @@ from ase import Atoms
 from graph_pes.data.atomic_graph import AtomicGraph, convert_to_atomic_graph
 from graph_pes.data.batching import AtomicGraphBatch
 from graph_pes.models import GraphPESModel, energy_and_forces
+from graph_pes.models.transforms import guess_local_energy_mean_and_std
 
 
 def parity_plots(
@@ -15,15 +16,20 @@ def parity_plots(
 ):
     model.eval()
 
+    mean, _ = guess_local_energy_mean_and_std(graphs)
+
     energies, forces = [], []
     pred_energies, pred_forces = [], []
     n_atoms = []
 
     for graph in graphs:
+        offsets = mean[graph.Z].sum()
         preds = energy_and_forces(model, graph)
-        energies.append(graph.labels["energy"].item())
+        energies.append(graph.labels["energy"].item() - offsets)
+        # energies.append(graph.labels["energy"].item())
         forces.append(graph.labels["forces"].numpy())
-        pred_energies.append(preds.energy.detach().item())
+        pred_energies.append(preds.energy.detach().item() - offsets)
+        # pred_energies.append(preds.energy.detach().item())
         pred_forces.append(preds.forces.detach().numpy())
         n_atoms.append(graph.n_atoms)
 

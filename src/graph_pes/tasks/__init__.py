@@ -72,7 +72,7 @@ class LearnThePES(pl.LightningModule):
         log = lambda name, value, verbose=True: self.log(
             f"{prefix}_{name}",
             value,
-            prog_bar=verbose,
+            prog_bar=verbose and prefix == "val",
             on_step=False,
             on_epoch=True,
             batch_size=graph.n_structures,

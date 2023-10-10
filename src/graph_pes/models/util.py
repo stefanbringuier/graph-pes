@@ -68,3 +68,15 @@ class MLP(nn.Module):
     def __repr__(self):
         layers = " → ".join(map(str, self.layer_widths))
         return f"MLP({layers}, activation={self.activation})"
+
+
+class Product(nn.Module):
+    def __init__(self, components: list[nn.Module]):
+        super().__init__()
+        self.components = nn.ModuleList(components)
+
+    def forward(self, x):
+        out = 1
+        for component in self.components:
+            out = out * component(x)
+        return out

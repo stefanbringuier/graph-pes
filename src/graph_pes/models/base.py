@@ -78,6 +78,9 @@ class GraphPESModel(nn.Module, ABC):
     def __repr__(self):
         return nn.Module.__repr__(self)
 
+    def __add__(self, other: GraphPESModel) -> GraphPESModel:
+        return Ensemble([self, other], mean=False)
+
 
 class MessagePassingPESModel(GraphPESModel, MessagePassing, ABC):
     # takes care of the complicated __init__ method
@@ -193,3 +196,14 @@ class SimplePairPotential(PairPotential, ABC):
         return self.pair_potential(distances)
 
     # TOOD: add _from seqeuntial method
+
+
+class Ensemble(GraphPESModel):
+    def __init__(self, models: list[GraphPESModel], mean: bool = True):
+        super().__init__()
+        self.models: list[GraphPESModel] = nn.ModuleList(models)  # type: ignore
+        self.mean = mean
+
+    def predict_local_energies(self, graph: AtomicGraph | AtomicGraphBatch):
+        s = sum(m.predict_local_energies(graph) for m in self.models)
+        return s / len(self.models) if self.mean else s
