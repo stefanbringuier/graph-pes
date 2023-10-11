@@ -181,31 +181,14 @@ def convert_to_atomic_graph(
     labels : list[str]
         The names of any additional labels to include in the graph.
         These must be present in either the `atoms.info`
-        or `atoms.arrays` dict.
+        or `atoms.arrays` dict. If not provided, all possible labels
+        will be included.
     """
 
     # in all this, we need to ensure we move from numpy float64 to
     # torch.float (which is float32 by default)
 
-    labels_dict = {}
-    for label in labels or []:
-        if label in atoms.info:
-            x = atoms.info[label]
-            if isinstance(x, np.ndarray):
-                x = torch.tensor(x, dtype=torch.float)
-            else:
-                x = torch.tensor([x], dtype=torch.float)
-            labels_dict[label] = x
-
-        elif label in atoms.arrays:
-            labels_dict[label] = torch.tensor(
-                atoms.arrays[label], dtype=torch.float
-            )
-
-        else:
-            raise ValueError(
-                f"Label '{label}' not found in atoms.info or atoms.arrays!"
-            )
+    labels_dict = extract_information(atoms, labels)
 
     i, j, offsets = neighbor_list("ijS", atoms, cutoff)
     neighbour_offsets = torch.tensor(
@@ -219,6 +202,80 @@ def convert_to_atomic_graph(
         neighbour_offsets=neighbour_offsets,
         **labels_dict,
     )
+
+
+def extract_information(
+    atoms: Atoms, labels: list[str] | None = None
+) -> dict[str, torch.Tensor]:
+    """
+    Extract any additional information from the atoms object.
+
+    Parameters
+    ----------
+    atoms : Atoms
+        The ASE Atoms object.
+    labels : list[str]
+        The names of any additional labels to include in the graph.
+        These must be present in either the `atoms.info`
+        or `atoms.arrays` dict. If not provided, all possible labels
+        will be included.
+    """
+
+    add_all = labels is None
+    labels = labels or []
+
+    labels_dict = {}
+
+    to_ignore = ["numbers", "positions", "cell", "pbc"]
+
+    for info_dict in [atoms.info, atoms.arrays]:
+        for key, value in info_dict.items():
+            if not add_all and not key in labels:
+                continue
+            if key in to_ignore:
+                continue
+
+            t = as_possible_tensor(value)
+
+            if t is None:
+                if add_all:
+                    warnings.warn(
+                        f"Label '{key}' is not a tensor and will be ignored."
+                    )
+                    continue
+                else:
+                    raise ValueError(
+                        f"Label '{key}' is not a tensor and cannot be included."
+                    )
+
+            labels_dict[key] = t
+
+    return labels_dict
+
+
+def as_possible_tensor(value: object) -> torch.Tensor | None:
+    """
+    Convert a value to a tensor if possible.
+
+    Parameters
+    ----------
+    value : object
+        The value to convert.
+    """
+
+    if isinstance(value, torch.Tensor):
+        return value
+
+    if isinstance(value, np.ndarray):
+        return torch.from_numpy(value)
+
+    if isinstance(value, (int, float)):
+        return torch.tensor([value])
+
+    try:
+        return torch.tensor(value)
+    except Exception:
+        return None
 
 
 def convert_to_atomic_graphs(

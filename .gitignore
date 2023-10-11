@@ -11,3 +11,5 @@ coverage.xml
 
 .vscode
 .isort.cfg
+.DS_Store
+

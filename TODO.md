@@ -7,5 +7,8 @@
 -   [ ] tests
 -   [ ] docs
 -   [ ] `nn.PositiveParameter` and `nn.BoundedParameter`
--   [ ] get rid of "energy" and "force" magic strings
 -   [ ] spline potential: learn the positions of the knots -> easier SR.
+-   [ ] get rid of "energy" and "force" magic strings
+-   [ ] automated label extraction
+-   [ ] units
+-   [ ] percentage error
