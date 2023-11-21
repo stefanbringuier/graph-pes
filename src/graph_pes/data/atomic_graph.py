@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import warnings
+from typing import Iterable
 
 import numpy as np
 import torch
 from ase import Atoms
 from ase.neighborlist import neighbor_list
-
 from graph_pes.util import shape_repr
 
 
@@ -106,10 +106,10 @@ class AtomicGraph:
 
         warnings.warn(
             "Are you using `AtomicGraph.positions` to calculate "
-            "neighbour vectors/distances? Use `AtomicGraph.neighbour_vectors` "
+            "neighbour vectors/distances?\nUse `AtomicGraph.neighbour_vectors` "
             "and `AtomicGraph.neighbour_distances` instead: for periodic "
             "systems, neighbour_vectors != positions[j] - positions[i]!",
-            UserWarning,
+            stacklevel=2,
         )
         return self._positions
 
@@ -119,7 +119,6 @@ class AtomicGraph:
         The vectors from central atoms :math:`i` to neighbours :math:`j`,
         respecting any periodic boundary conditions.
         """
-
         i, j = self.neighbour_index
         neighbour_positions = self._positions[j] + self.neighbour_offsets
         return neighbour_positions - self._positions[i]
@@ -130,7 +129,6 @@ class AtomicGraph:
         The distances from central atoms :math:`i` to neighbours :math:`j`,
         respecting any periodic boundary conditions.
         """
-
         return self.neighbour_vectors.norm(dim=-1)
 
     @property
@@ -144,8 +142,7 @@ class AtomicGraph:
         return self.neighbour_index.shape[1]
 
     def to(self, device: torch.device | str) -> AtomicGraph:
-        """Get a copy of this graph on the specified device."""
-
+        """Create a copy of this graph on the specified device."""
         labels = {k: v.to(device) for k, v in self.labels.items()}
         return AtomicGraph(
             Z=self.Z.to(device),
@@ -227,10 +224,11 @@ def extract_information(
     labels_dict = {}
 
     to_ignore = ["numbers", "positions", "cell", "pbc"]
+    other_ignored = []
 
     for info_dict in [atoms.info, atoms.arrays]:
         for key, value in info_dict.items():
-            if not add_all and not key in labels:
+            if not add_all and key not in labels:
                 continue
             if key in to_ignore:
                 continue
@@ -239,17 +237,21 @@ def extract_information(
 
             if t is None:
                 if add_all:
-                    warnings.warn(
-                        f"Label '{key}' is not a tensor and will be ignored."
-                    )
+                    other_ignored.append(key)
                     continue
                 else:
                     raise ValueError(
                         f"Label '{key}' is not a tensor and cannot be included."
                     )
 
-            labels_dict[key] = t
+            labels_dict[key] = t.float()
 
+    if other_ignored:
+        warnings.warn(
+            f"The following labels are not tensors and will be ignored: "
+            f"{', '.join(other_ignored)}",
+            stacklevel=2,
+        )
     return labels_dict
 
 
@@ -274,13 +276,29 @@ def as_possible_tensor(value: object) -> torch.Tensor | None:
 
     try:
         return torch.tensor(value)
+
     except Exception:
         return None
 
 
 def convert_to_atomic_graphs(
-    structures: list[Atoms],
+    structures: Iterable[Atoms],
     cutoff: float,
     labels: list[str] | None = None,
 ) -> list[AtomicGraph]:
+    """
+    Convert a collection of ASE `Atoms` into a list of `AtomicGraph`s.
+
+    Parameters
+    ----------
+    atoms : Iterable[Atoms]
+        The ASE Atoms objects.
+    cutoff : float
+        The cutoff distance for neighbour finding.
+    labels : list[str]
+        The names of any additional labels to include in the graph.
+        These must be present in either the `atoms.info`
+        or `atoms.arrays` dict. If not provided, all possible labels
+        will be included.
+    """
     return [convert_to_atomic_graph(s, cutoff, labels) for s in structures]

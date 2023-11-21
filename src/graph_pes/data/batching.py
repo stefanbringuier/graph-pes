@@ -10,6 +10,18 @@ from torch_geometric.utils import scatter
 from .atomic_graph import AtomicGraph
 
 
+def sum_per_structure(
+    property: torch.Tensor, graph: AtomicGraph | AtomicGraphBatch
+) -> torch.Tensor:
+    if isinstance(graph, AtomicGraphBatch):
+        # we have more than one structure: sum over local energies to
+        # get a total energy for each structure
+        return scatter(property, graph.batch, dim=0, reduce="sum")
+    else:
+        # we only have one structure: sum over all the atoms
+        return property.sum()
+
+
 class AtomicDataLoader(TorchDataLoader):
     r"""
     A data loader for merging :class:`AtomicGraph` objects into
@@ -38,10 +50,11 @@ class AtomicDataLoader(TorchDataLoader):
         if "collate_fn" in kwargs:
             warnings.warn(
                 "GraphPES uses a custom collate_fn (`collate_atomic_graphs`), "
-                "are you sure you want to override this?"
+                "are you sure you want to override this?",
+                stacklevel=2,
             )
 
-        collate_fn = kwargs.pop("collate_fn", AtomicGraphBatch.from_graphs)
+        collate_fn = kwargs.pop("collate_fn", _collate_atomic_graphs)
 
         super().__init__(
             dataset,  # type: ignore
@@ -50,41 +63,6 @@ class AtomicDataLoader(TorchDataLoader):
             collate_fn=collate_fn,
             **kwargs,
         )
-
-
-def collate_atomic_graphs(graphs: list[AtomicGraph]) -> AtomicGraphBatch:
-    # easy properties: just cat these together
-    Z = torch.cat([g.Z for g in graphs])
-    positions = torch.cat([g._positions for g in graphs])
-
-    # TODO: check that all graphs have the same labels
-    labels = {
-        k: torch.cat([g.labels[k] for g in graphs]) for k in graphs[0].labels
-    }
-
-    # standard way to calculate the batch and ptr properties
-    batch = torch.cat(
-        [torch.full((g.Z.shape[0],), i) for i, g in enumerate(graphs)]
-    )
-    ptr = torch.tensor([0] + [g.Z.shape[0] for g in graphs]).cumsum(dim=0)
-
-    # use the ptr to increment the neighbour index appropriately
-    neighbour_index = torch.cat(
-        [g.neighbour_index + ptr[i] for i, g in enumerate(graphs)], dim=1
-    )
-
-    # neighbour offsets can also just be concatenated
-    neighbour_offsets = torch.cat([g.neighbour_offsets for g in graphs])
-
-    return AtomicGraphBatch(
-        Z=Z,
-        positions=positions,
-        neighbour_index=neighbour_index,  # type: ignore
-        batch=batch,  # type: ignore
-        ptr=ptr,  # type: ignore
-        neighbour_offsets=neighbour_offsets,
-        **labels,
-    )
 
 
 class AtomicGraphBatch(AtomicGraph):
@@ -127,6 +105,10 @@ class AtomicGraphBatch(AtomicGraph):
     def n_structures(self) -> int:
         return self.ptr.shape[0] - 1
 
+    @property
+    def structure_sizes(self) -> torch.Tensor:
+        return self.ptr[1:] - self.ptr[:-1]
+
     def to(self, device: torch.device | str) -> AtomicGraphBatch:
         labels = {k: v.to(device) for k, v in self.labels.items()}
 
@@ -142,16 +124,39 @@ class AtomicGraphBatch(AtomicGraph):
 
     @classmethod
     def from_graphs(cls, graphs: list[AtomicGraph]) -> AtomicGraphBatch:
-        return collate_atomic_graphs(graphs)
+        return _collate_atomic_graphs(graphs)
 
 
-def sum_per_structure(
-    property: torch.Tensor, graph: AtomicGraph | AtomicGraphBatch
-) -> torch.Tensor:
-    if isinstance(graph, AtomicGraphBatch):
-        # we have more than one structure: sum over local energies to
-        # get a total energy for each structure
-        return scatter(property, graph.batch, dim=0, reduce="sum")
-    else:
-        # we only have one structure: sum over all the atoms
-        return property.sum()
+def _collate_atomic_graphs(graphs: list[AtomicGraph]) -> AtomicGraphBatch:
+    # easy properties: just cat these together
+    Z = torch.cat([g.Z for g in graphs])
+    positions = torch.cat([g._positions for g in graphs])
+
+    # TODO: check that all graphs have the same labels
+    labels = {
+        k: torch.cat([g.labels[k] for g in graphs]) for k in graphs[0].labels
+    }
+
+    # standard way to calculate the batch and ptr properties
+    batch = torch.cat(
+        [torch.full((g.Z.shape[0],), i) for i, g in enumerate(graphs)]
+    )
+    ptr = torch.tensor([0] + [g.Z.shape[0] for g in graphs]).cumsum(dim=0)
+
+    # use the ptr to increment the neighbour index appropriately
+    neighbour_index = torch.cat(
+        [g.neighbour_index + ptr[i] for i, g in enumerate(graphs)], dim=1
+    )
+
+    # neighbour offsets can also just be concatenated
+    neighbour_offsets = torch.cat([g.neighbour_offsets for g in graphs])
+
+    return AtomicGraphBatch(
+        Z=Z,
+        positions=positions,
+        neighbour_index=neighbour_index,  # type: ignore
+        batch=batch,  # type: ignore
+        ptr=ptr,  # type: ignore
+        neighbour_offsets=neighbour_offsets,
+        **labels,
+    )

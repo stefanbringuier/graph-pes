@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from math import pi as π
 from typing import Any, Callable
@@ -12,12 +13,14 @@ class DistanceExpansion(nn.Module, ABC):
     Base class for an expansion function, :math:`\phi(r)` such that:
 
     .. math::
-        r \in \mathbb{R}^1 \quad \rightarrow \quad \phi(r) \in \mathbb{R}^{n_\text{features}}
+        r \in \mathbb{R}^1 \quad \rightarrow \quad \phi(r) \in
+        \mathbb{R}^{n_\text{features}}
 
     or, for a batch of distances:
 
     .. math::
-        r \in \mathbb{R}^{n_\text{batch} \times 1} \quad \rightarrow \quad \phi(r) \in \mathbb{R}^{n_\text{batch} \times n_\text{features}}
+        r \in \mathbb{R}^{n_\text{batch} \times 1} \quad \rightarrow \quad
+        \phi(r) \in \mathbb{R}^{n_\text{batch} \times n_\text{features}}
 
     Parameters
     ----------
@@ -25,9 +28,10 @@ class DistanceExpansion(nn.Module, ABC):
         The number of features to expand into.
     """
 
-    def __init__(self, n_features: int):
+    def __init__(self, n_features: int, cutoff: float):
         super().__init__()
         self.n_features = n_features
+        self.cutoff = cutoff
 
     @abstractmethod
     def expand(self, r: torch.Tensor) -> torch.Tensor:
@@ -67,7 +71,8 @@ class Bessel(DistanceExpansion):
     The Bessel expansion:
 
     .. math::
-        \phi_{n}(r) = \frac{\sin(\pi n r / r_\text{cut})}{r} \quad n \in [1, n_\text{features}]
+        \phi_{n}(r) = \frac{\sin(\pi n r / r_\text{cut})}{r} \quad n
+        \in [1, n_\text{features}]
 
     where :math:`r_\text{cut}` is the cutoff radius and :math:`n` is the order
     of the Bessel function.
@@ -81,9 +86,8 @@ class Bessel(DistanceExpansion):
     """
 
     def __init__(self, n_features: int, cutoff: float):
-        super().__init__(n_features=n_features)
+        super().__init__(n_features, cutoff)
 
-        self.cutoff = cutoff
         self.register_buffer(
             "frequencies", torch.arange(1, n_features + 1) * π / cutoff
         )
@@ -121,10 +125,9 @@ class GaussianSmearing(DistanceExpansion):
         n_features: int,
         cutoff: float,
     ):
-        super().__init__(n_features)
-        sigma = cutoff / n_features
+        super().__init__(n_features, cutoff)
 
-        self.cutoff = cutoff
+        sigma = cutoff / n_features
         self.coef = -1 / (2 * sigma**2)
         self.register_buffer("centers", torch.linspace(0, cutoff, n_features))
 
@@ -144,7 +147,8 @@ class PolynomialEnvelope(nn.Module):
     A thrice differentiable envelope function.
 
     .. math::
-        E_p(r) = 1 - \frac{(p+1)(p+2)}{2}\cdot r^p + p(p+2) \cdot r^{p+1} - \frac{p(p+1)}{2}\cdot d^{p+2}
+        E_p(r) = 1 - \frac{(p+1)(p+2)}{2}\cdot r^p + p(p+2) \cdot r^{p+1}
+        - \frac{p(p+1)}{2}\cdot d^{p+2}
 
     where :math:`r_\text{cut}` is the cutoff radius,
     and :math:`p \in \mathbb{N}`.
@@ -180,35 +184,3 @@ class PolynomialEnvelope(nn.Module):
 
     def __repr__(self):
         return f"PolynomialEnvelope(cutoff={self.cutoff}, p={self.p})"
-
-
-class EnvelopedExpansion(DistanceExpansion):
-    r"""
-    A wrapper class to combine an envelope and an expansion.
-
-    The forward pass, :math:`\Phi(r)`, is defined as:
-
-    .. math::
-        \Phi(r) = E(r) \cdot \phi(r)
-
-    where :math:`E(r)` is the envelope function
-    and :math:`\phi(r)` is the expansion.
-    """
-
-    def __init__(
-        self,
-        envelope: Envelope,
-        expansion: DistanceExpansion,
-    ):
-        super().__init__(n_features=expansion.n_features)
-        self.envelope = envelope
-        self.expansion = expansion
-
-    def expand(self, r: torch.Tensor) -> torch.Tensor:
-        return self.envelope(r) * self.expansion(r)
-
-    def __repr__(self):
-        rep = f"({self.envelope} ⊙ {self.expansion})"
-        if len(rep) > 40:
-            rep = f"⊙(\n  {self.envelope},\n  {self.expansion}\n)"
-        return rep
