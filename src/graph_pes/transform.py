@@ -297,3 +297,15 @@ class PerSpeciesScale(Transform):
         return self.scales.__repr__().replace(
             self.scales.__class__.__name__, self.__class__.__name__
         )
+
+
+class FixedScale(Transform):
+    def __init__(self, scale: float):
+        super().__init__(trainable=False)
+        self.scale = scale
+
+    def forward(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+        return x * self.scale
+
+    def inverse(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+        return x / self.scale

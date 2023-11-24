@@ -6,9 +6,18 @@
 -   [ ] isolated atoms
 -   [ ] tests
 -   [ ] docs
--   [ ] `nn.PositiveParameter` and `nn.BoundedParameter`
--   [ ] spline potential: learn the positions of the knots -> easier SR.
 -   [ ] get rid of "energy" and "force" magic strings
--   [ ] automated label extraction
 -   [ ] units
 -   [ ] percentage error
+-   [ ] chiheb %RMSE
+-   [ ] add cells for stress training
+-   [ ] nice callback API for monitoring plots during training.
+-   [ ] actual bessel functions?
+-   [ ] sequential training of SchNet layers
+-   [ ] inspect learned filters - what do they look like?
+    -   [ ] can we just have 10 learnable ones and then do feature selection?
+-   [ ] tensor products to go from pair -> three -> four -> ... many body interactions
+-   [ ] mace schedule the energy weight up
+-   [ ] schnet embedding: create horseshoe custom curve?
+-   [ ] Do I need both envelopes? surely only first required
+-   [ ] learnable mlp that is just linear combo of rbf? do some feature selection-esque L1 regularization?

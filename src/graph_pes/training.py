@@ -192,7 +192,7 @@ def default_loss_fns() -> list[Loss]:
 def default_trainer_kwargs(early_stopping, dir, name) -> dict:
     es_callback = EarlyStopping(
         monitor="val_total_loss",
-        patience=50,
+        patience=75,
         mode="min",
         min_delta=1e-3,
     )

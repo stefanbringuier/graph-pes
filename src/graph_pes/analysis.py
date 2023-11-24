@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any
 
 import matplotlib.pyplot as plt
 import torch
@@ -19,11 +19,11 @@ def parity_plots(
     graphs: list[AtomicGraph],
     E_transform: Transform | None = None,
     F_transform: Transform | None = None,
-    axs: Sequence[plt.Axes] | None = None,
+    axs: tuple[plt.Axes, plt.Axes] | None = None,
     E_kwargs: dict[str, Any] | None = None,
     F_kwargs: dict[str, Any] | None = None,
     **kwargs,
-):
+) -> tuple[plt.Axes, plt.Axes]:
     if E_transform is None:
         E_transform = Chain([PerSpeciesScale(), PerSpeciesOffset()])
     if F_transform is None:
@@ -66,4 +66,4 @@ def parity_plots(
     F_ax.set_xlabel(r"$F$     (a.u.)")
     F_ax.set_ylabel(r"$\tilde{F}$     (a.u.)")
 
-    return axs
+    return axs  # type: ignore

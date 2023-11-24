@@ -15,7 +15,13 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 keywords = []
-dependencies = ["torch", "torch-geometric", "pytorch-lightning", "ase", "numpy"]
+dependencies = [
+    "torch>=2.1",
+    "torch-geometric",
+    "pytorch-lightning",
+    "ase",
+    "numpy",
+]
 requires-python = ">=3.7"
 
 [project.optional-dependencies]
@@ -27,14 +33,15 @@ dev = [
     "sphinx",
     "furo",
     "nbsphinx",
+    "ruff",
 ]
 publish = ["build", "twine"]
 
 [project.urls]
-Homepage = "https://github.com/jla-gardner/digital-experiments"
+Homepage = "https://github.com/jla-gardner/graph-pes"
 
 [tool.bumpver]
-current_version = "1.2.8"
+current_version = "0.0.0"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "Bump version {old_version} -> {new_version}"
 commit = true
@@ -44,3 +51,56 @@ push = false
 [tool.bumpver.file_patterns]
 "pyproject.toml" = ['current_version = "{version}"', 'version = "{version}"']
 "src/graph_pes/__init__.py" = ["{version}"]
+
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+include = ["src", "tests"]
+extend-include = ["*.ipynb"]
+
+line-length = 80
+indent-width = 4
+
+# Assume Python 3.8
+target-version = "py38"
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+ignore = ["SIM300", "E402", "E703"]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
