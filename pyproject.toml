@@ -16,7 +16,7 @@ classifiers = [
 ]
 keywords = []
 dependencies = ["torch", "torch-geometric", "pytorch-lightning", "ase", "numpy"]
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 
 [project.optional-dependencies]
 dev = [
