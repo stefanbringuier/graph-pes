@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Callable
 
 import torch
 from graph_pes.core import GraphPESModel
@@ -9,7 +10,7 @@ from graph_pes.nn import MLP, PositiveParameter
 from torch import nn
 from torch_geometric.utils import scatter
 
-from .distances import Bessel, PolynomialEnvelope
+from .distances import Bessel, DistanceExpansion, Envelope, PolynomialEnvelope
 
 
 class PairPotential(GraphPESModel, ABC):
@@ -100,11 +101,13 @@ class SimplePP(PairPotential):
         cutoff: float,
         radial_features: int = 8,
         activation: str | torch.nn.Module = "CELU",
+        expansion: type[DistanceExpansion] = Bessel,
+        envelope: Callable[[float], Envelope] = PolynomialEnvelope,
     ):
         super().__init__()
-        self.envelope = PolynomialEnvelope(cutoff)
+        self.envelope = envelope(cutoff)
         self.raw_interaction = nn.Sequential(
-            Bessel(radial_features, cutoff),
+            expansion(radial_features, cutoff),
             MLP([radial_features] + hidden_layers + [1], activation),
         )
 

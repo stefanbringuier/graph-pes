@@ -8,6 +8,7 @@ coverage.xml
 
 *.extxyz
 *.npz
+*.ipynb
 
 .vscode
 .isort.cfg

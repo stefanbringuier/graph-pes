@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from typing import NamedTuple
 
 import torch
 from graph_pes.data import AtomicGraph
@@ -119,8 +121,81 @@ class Ensemble(GraphPESModel):
         self.mean = mean
 
     def predict_local_energies(self, graph: AtomicGraph | AtomicGraphBatch):
-        s = sum(m.predict_local_energies(graph) for m in self.models)
+        s = sum(m.predict_local_energies(graph).squeeze() for m in self.models)
         return s / len(self.models) if self.mean else s
+
+
+@contextmanager
+def require_grad(tensor: torch.Tensor):
+    # check if in a torch.no_grad() context: if so,
+    # raise an error
+    if not torch.is_grad_enabled():
+        raise RuntimeError(
+            "Autograd is disabled, but you are trying to "
+            "calculate gradients. Please wrap your code in "
+            "a torch.enable_grad() context."
+        )
+
+    req_grad = tensor.requires_grad
+    tensor.requires_grad_(True)
+    yield
+    tensor.requires_grad_(req_grad)
+
+
+class Prediction(NamedTuple):
+    energy: torch.Tensor
+    forces: torch.Tensor
+    stress: torch.Tensor | None = None
+
+
+def get_predictions(pes: GraphPESModel, structure: AtomicGraph) -> Prediction:
+    """
+    Evaluate the `pes`  on `structure` to obtain the total energy,
+    forces on each atom, and optionally a stress tensor (if the
+    structure has a unit cell).
+
+    Parameters
+    ----------
+    pes : PES
+        The PES to use.
+    structure : AtomicStructure
+        The atomic structure to evaluate.
+    """
+
+    if not structure.has_cell:
+        # don't care about stress
+        with require_grad(structure._positions):
+            total_energy = pes(structure)
+            dE_dR = torch.autograd.grad(
+                total_energy.sum(),
+                structure._positions,
+                create_graph=True,
+                allow_unused=True,
+                materialize_grads=True,
+            )[0]
+        return Prediction(total_energy, -dE_dR)
+
+    # the virial stress tensor is the gradient of the total energy wrt
+    # an infinitesimal change in the cell parameters
+    actual_cell = structure.cell
+    change_to_cell = torch.zeros_like(actual_cell, requires_grad=True)
+    # symmetric_change = 0.5 * (change_to_cell + change_to_cell.transpose(-1, -2))
+    structure.cell = actual_cell + change_to_cell
+    with require_grad(structure._positions):
+        total_energy = pes(structure)
+        (dE_dR, dCell_dR) = torch.autograd.grad(
+            total_energy.sum(),
+            [structure._positions, change_to_cell],
+            create_graph=True,
+            allow_unused=True,
+            materialize_grads=True,
+        )
+
+    structure.cell = actual_cell
+    volume = torch.det(actual_cell).view(-1, 1, 1)
+    stress = -dCell_dR / volume
+
+    return Prediction(total_energy, -dE_dR, stress)
 
 
 def energy_and_forces(pes: GraphPESModel, structure: AtomicGraph):

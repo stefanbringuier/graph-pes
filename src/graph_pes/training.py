@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytorch_lightning as pl
 import torch
-from graph_pes.core import GraphPESModel, energy_and_forces
+from graph_pes.core import GraphPESModel, energy_and_forces, get_predictions
 from graph_pes.data import AtomicGraph
 from graph_pes.data.batching import AtomicDataLoader, AtomicGraphBatch
 from graph_pes.loss import RMSE, Loss
-from graph_pes.transform import PerSpeciesOffset, PerSpeciesScale
+from graph_pes.transform import PerSpeciesOffset, PerSpeciesScale, Scale
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch import optim
@@ -31,6 +31,7 @@ def train_model(
     dir: str | None = None,
     name: str | None = None,
     early_stopping: bool = True,
+    lr_decay: float | None = None,
     **trainer_kwargs,
 ):
     # ensure that the data are converted to AtomicDataLoaders
@@ -59,6 +60,10 @@ def train_model(
             lr = 3e-4
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
+    if lr_decay is not None:
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, lr_decay)
+        optimizer = {"optimizer": optimizer, "lr_scheduler": scheduler}
+
     # create the task (a pytorch lightning module)
     task = LearnThePES(
         model=model,
@@ -75,10 +80,10 @@ def train_model(
     trainer.fit(task, *data_loaders)  # type: ignore
 
     # load the best model
-    try:
-        return task.load_best_weights(model, trainer)
-    except:
-        return model
+    # try:
+    return task.load_best_weights(model, trainer)
+    # except:
+    # return model
 
 
 class LearnThePES(pl.LightningModule):
@@ -114,7 +119,7 @@ class LearnThePES(pl.LightningModule):
             )
 
         # generate prediction:
-        predictions = energy_and_forces(self.model, graph)
+        predictions = get_predictions(self.model, graph)._asdict()
 
         # compute the losses
         total_loss = torch.scalar_tensor(0.0, device=self.device)
@@ -186,6 +191,11 @@ def default_loss_fns() -> list[Loss]:
             metric=RMSE(),
             transform=PerSpeciesScale(),
         ),
+        # Loss(
+        #     "stress",
+        #     metric=RMSE(),
+        #     transform=Scale(),
+        # ),
     ]
 
 

@@ -8,7 +8,7 @@ import torch
 from torch import nn
 
 
-class DistanceExpansion(nn.Module, ABC):
+class DistanceExpansion(nn.Module, ABC):  # TODO- make protocol?
     r"""
     Base class for an expansion function, :math:`\phi(r)` such that:
 
@@ -26,6 +26,8 @@ class DistanceExpansion(nn.Module, ABC):
     ----------
     n_features : int
         The number of features to expand into.
+    cutoff : float
+        The cutoff radius.
     """
 
     def __init__(self, n_features: int, cutoff: float):
@@ -184,3 +186,24 @@ class PolynomialEnvelope(nn.Module):
 
     def __repr__(self):
         return f"PolynomialEnvelope(cutoff={self.cutoff}, p={self.p})"
+
+
+class ExtendedPolynomialEnvelope(PolynomialEnvelope):
+    def __init__(self, cutoff: float, onset: float | None = None, p: int = 6):
+        if onset is None:
+            onset = cutoff / 3
+        super().__init__(cutoff - onset, p)
+        self.onset = onset
+
+    def __call__(self, r):
+        return torch.where(
+            r < self.onset,
+            torch.ones_like(r),
+            super().__call__(r - self.onset),
+        )
+
+    def __repr__(self):
+        return (
+            "ExtendedPolynomialEnvelope("
+            f"cutoff={self.cutoff}, onset={self.onset}, p={self.p})"
+        )

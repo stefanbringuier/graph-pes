@@ -299,6 +299,24 @@ class PerSpeciesScale(Transform):
         )
 
 
+class Scale(Transform):
+    def __init__(self, trainable: bool = True, scale: float = 1.0):
+        super().__init__(trainable=trainable)
+        self.scale = self._parameter(torch.tensor(scale))
+
+    def forward(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+        return x * self.scale
+
+    def inverse(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+        return x / self.scale
+
+    def fit_to_source(self, data: torch.Tensor, graphs: AtomicGraphBatch):
+        self.scale = self._parameter(1 / data.std())
+
+    def fit_to_target(self, data: torch.Tensor, graphs: AtomicGraphBatch):
+        self.scale = self._parameter(data.std())
+
+
 class FixedScale(Transform):
     def __init__(self, scale: float):
         super().__init__(trainable=False)

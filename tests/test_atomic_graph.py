@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 import torch
 from ase import Atoms
-
 from graph_pes.data.atomic_graph import (
     AtomicGraph,
     convert_to_atomic_graph,
@@ -55,9 +54,9 @@ def test_random_structure():
 
 def test_warning_on_position():
     # check that a warning is raised if the user tries to access the positions
-    # directly
+    # directly for a structure with a unit cell
     with pytest.warns(UserWarning):
-        GRAPHS[0].positions
+        _ = GRAPHS[1].positions
 
 
 def test_device_casting():

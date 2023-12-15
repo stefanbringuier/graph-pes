@@ -24,8 +24,10 @@ class AtomicGraph:
     positions: torch.Tensor
         The positions of the atoms. Shape: (n_atoms, 3)
     neighbour_index: torch.LongTensor
-        A symmetric edge list specifying neighbouring atoms :math:`j`
+        An edge list specifying neighbouring atoms :math:`j`
         for each central atom :math:`i`. Shape: (2, n_edges)
+    unit_cell: torch.Tensor | None
+        The unit cell of the structure. Shape: (3, 3)
     neighbour_offsets: torch.Tensor | None
         Offsets to apply to neighbour :math:`j` positions to account for
         periodic boundary conditions such that
@@ -34,7 +36,7 @@ class AtomicGraph:
 
             i, j = neighbour_index
             positions_i = positions[i]
-            positions_j = positions[j] + neighbour_offsets
+            positions_j = positions[j] + neighbour_offsets @ unit_cell
             vectors_i_to_j = positions_j - positions_i
 
         Shape: (n_edges, 3)
@@ -57,12 +59,19 @@ class AtomicGraph:
 
     def __init__(
         self,
-        Z: torch.Tensor,
-        positions: torch.Tensor,
+        Z: torch.ShortTensor,
+        positions: torch.FloatTensor,
         neighbour_index: torch.LongTensor,
-        neighbour_offsets: torch.Tensor | None = None,
+        cell: torch.FloatTensor | None = None,
+        neighbour_offsets: torch.ShortTensor | None = None,
         **labels: torch.Tensor,
     ):
+        # sanitise inputs:
+        if neighbour_offsets is not None and cell is None:
+            raise ValueError(
+                "If neighbour_offsets is provided, cell must also be provided."
+            )
+
         self.Z = Z
         """Atomic numbers of the atoms. Shape: (`n_atoms`,)"""
 
@@ -70,20 +79,29 @@ class AtomicGraph:
         """An edge list specifying neighbouring atoms :math:`j`
         for each central atom :math:`i`. Shape: (2, n_edges)"""
 
-        zero_offsets = torch.zeros((neighbour_index.shape[1], 3))
-        self.neighbour_offsets = (
-            zero_offsets if neighbour_offsets is None else neighbour_offsets
+        nothing_cell = torch.FloatTensor(torch.zeros((3, 3)))
+        cell = cell if cell is not None else nothing_cell
+        self.cell = cell
+        """The unit cell of the structure. Shape: (3, 3)"""
+
+        zero_offsets = torch.ShortTensor(
+            torch.zeros((neighbour_index.shape[1], 3), dtype=torch.short)
         )
-        """Offsets to apply to neighbour :math:`j` positions to account for
-        periodic boundary conditions such that
+        neighbour_offsets = (
+            neighbour_offsets if neighbour_offsets is not None else zero_offsets
+        )
+        self.neighbour_offsets = neighbour_offsets
+        """Offsets to apply to neighbour :math:`j` positions to
+        account for periodic boundary conditions such that
 
         .. code-block:: python
 
             i, j = neighbour_index
-            neighbour_positions = positions[j] + neighbour_offsets
-            neighbour_vectors = neighbour_positions - positions[i]
+            positions_i = positions[i]
+            positions_j = positions[j] + neighbour_offsets @ unit_cell
+            vectors_i_to_j = positions_j - positions_i
 
-        Shape: (n_edges, 3)."""
+        Shape: (n_edges, 3)"""
 
         self.labels = labels
         """Additional, user defined labels for the structure/atoms/edges."""
@@ -95,22 +113,29 @@ class AtomicGraph:
         self._positions = positions
 
     @property
+    def has_cell(self) -> bool:
+        """Whether the structure has a unit cell."""
+        return not torch.all(self.cell == 0).item()
+
+    @property
     def positions(self):
         """The positions of the atoms. Shape: (n_atoms, 3)"""
 
-        # raise a warning if the user accesses the positions directly,
-        # since the most likely cause for this is that they are attempting
-        # to calculate neighbour vectors/distances as:
-        #   neighbour_vectors = positions[j] - positions[i]
-        # which will be incorrect for periodic systems.
+        if self.has_cell:
+            # raise a warning if the user accesses the positions directly,
+            # since the most likely cause for this is that they are attempting
+            # to calculate neighbour vectors/distances as:
+            #   neighbour_vectors = positions[j] - positions[i]
+            # which will be incorrect for periodic systems.
 
-        warnings.warn(
-            "Are you using `AtomicGraph.positions` to calculate "
-            "neighbour vectors/distances?\nUse `AtomicGraph.neighbour_vectors` "
-            "and `AtomicGraph.neighbour_distances` instead: for periodic "
-            "systems, neighbour_vectors != positions[j] - positions[i]!",
-            stacklevel=2,
-        )
+            warnings.warn(
+                "Are you using `AtomicGraph.positions` to calculate "
+                "neighbour vectors/distances?\n"
+                "Use `AtomicGraph.neighbour_vectors` and "
+                "`AtomicGraph.neighbour_distances` instead: for periodic "
+                "systems, neighbour_vectors != positions[j] - positions[i]!",
+                stacklevel=2,
+            )
         return self._positions
 
     @property
@@ -120,7 +145,12 @@ class AtomicGraph:
         respecting any periodic boundary conditions.
         """
         i, j = self.neighbour_index
-        neighbour_positions = self._positions[j] + self.neighbour_offsets
+        if not self.has_cell:
+            return self._positions[j] - self._positions[i]
+
+        neighbour_positions = (
+            self._positions[j] + self.neighbour_offsets.float() @ self.cell
+        )
         return neighbour_positions - self._positions[i]
 
     @property
@@ -144,11 +174,13 @@ class AtomicGraph:
     def to(self, device: torch.device | str) -> AtomicGraph:
         """Create a copy of this graph on the specified device."""
         labels = {k: v.to(device) for k, v in self.labels.items()}
+
         return AtomicGraph(
-            Z=self.Z.to(device),
-            positions=self._positions.to(device),
+            Z=self.Z.to(device),  # type: ignore
+            positions=self._positions.to(device),  # type: ignore
             neighbour_index=self.neighbour_index.to(device),  # type: ignore
-            neighbour_offsets=self.neighbour_offsets.to(device),
+            cell=self.cell.to(device),  # type: ignore
+            neighbour_offsets=self.neighbour_offsets.to(device),  # type: ignore
             **labels,
         )
 
@@ -188,15 +220,13 @@ def convert_to_atomic_graph(
     labels_dict = extract_information(atoms, labels)
 
     i, j, offsets = neighbor_list("ijS", atoms, cutoff)
-    neighbour_offsets = torch.tensor(
-        offsets @ atoms.cell.array, dtype=torch.float
-    )
 
     return AtomicGraph(
-        Z=torch.LongTensor(atoms.numbers),
-        positions=torch.tensor(atoms.positions, dtype=torch.float),
+        Z=torch.ShortTensor(atoms.numbers),
+        positions=torch.FloatTensor(atoms.positions),
         neighbour_index=torch.LongTensor(np.vstack([i, j])),
-        neighbour_offsets=neighbour_offsets,
+        cell=torch.FloatTensor(atoms.cell.array),
+        neighbour_offsets=torch.ShortTensor(offsets),
         **labels_dict,
     )
 
