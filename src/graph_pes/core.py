@@ -183,12 +183,8 @@ def get_predictions(pes: GraphPESModel, structure: AtomicGraph) -> Prediction:
     structure.cell = actual_cell + change_to_cell
     with require_grad(structure._positions):
         total_energy = pes(structure)
-        (dE_dR, dCell_dR) = torch.autograd.grad(
-            total_energy.sum(),
-            [structure._positions, change_to_cell],
-            create_graph=True,
-            allow_unused=True,
-            materialize_grads=True,
+        (dE_dR, dCell_dR) = get_gradient(
+            total_energy, (structure._positions, change_to_cell)
         )
 
     structure.cell = actual_cell
@@ -224,21 +220,25 @@ def energy_and_forces(pes: GraphPESModel, structure: AtomicGraph):
     # calculate forces for (almost) free
     structure._positions.requires_grad_(True)
     energy = pes(structure)
-    dE_dR = torch.autograd.grad(
-        energy.sum(),
-        structure._positions,
-        create_graph=True,
-        allow_unused=True,
-        materialize_grads=True,
-    )[0]
+    dE_dR = get_gradient(energy, (structure._positions,))[0]
     structure._positions.requires_grad_(False)
     return dict(energy=energy.squeeze(), forces=-dE_dR)
 
 
-# # if materialize_grads:
-#         result = tuple(
-#             output
-#             if output is not None
-#             else torch.zeros_like(input, requires_grad=True)
-#             for (output, input) in zip(result, t_inputs)
-#         # )
+def get_gradient(
+    energy: torch.Tensor,
+    things: tuple[torch.Tensor, ...],
+):
+    grads = torch.autograd.grad(
+        energy.sum(),
+        things,
+        create_graph=True,
+        allow_unused=True,
+    )
+
+    return tuple(
+        output
+        if output is not None
+        else torch.zeros_like(input, requires_grad=True)
+        for (output, input) in zip(grads, things)
+    )
