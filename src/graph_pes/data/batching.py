@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import warnings
-from typing import Sequence, cast
+from typing import Sequence
 
 import torch
-from jaxtyping import Float, Int
+from jaxtyping import Float, Int, Shaped
 from torch import Tensor
 from torch.utils.data import DataLoader as TorchDataLoader
 from torch_geometric.utils import scatter
 
+from ..util import pairs
 from .atomic_graph import AtomicGraph
 
 
@@ -121,7 +122,9 @@ class AtomicGraphBatch(AtomicGraph):
         neighbour_offsets: Int[Tensor, "Eb 3"],
         batch: Int[Tensor, "Nb"],
         ptr: Int[Tensor, "B+1"],
-        **labels: torch.Tensor,
+        atom_labels: dict[str, Shaped[Tensor, "Nb ..."]] | None = None,
+        edge_labels: dict[str, Shaped[Tensor, "Eb ..."]] | None = None,
+        structure_labels: dict[str, Shaped[Tensor, "B, ..."]] | None = None,
     ):
         super().__init__(
             Z=Z,
@@ -129,7 +132,9 @@ class AtomicGraphBatch(AtomicGraph):
             neighbour_index=neighbour_index,
             cell=cells,
             neighbour_offsets=neighbour_offsets,
-            **labels,
+            atom_labels=atom_labels,
+            edge_labels=edge_labels,
+            structure_labels=structure_labels,
         )
 
         self.batch = batch
@@ -152,15 +157,11 @@ class AtomicGraphBatch(AtomicGraph):
 
         # otherwise calculate offsets on a per-structure basis
         actual_offsets = torch.zeros((self.neighbour_index.shape[1], 3))
-        for batch, (start, end) in enumerate(zip(self.ptr[:-1], self.ptr[1:])):
+        for batch, (start, end) in enumerate(pairs(self.ptr)):  # type: ignore
             mask = (i >= start) & (i < end)
             actual_offsets[mask] = (
                 self.neighbour_offsets[mask].float() @ self.cell[batch]
             )
-        # for batch, (start, end) in enumerate(zip(self.ptr[:-1], self.ptr[1:])):
-        #     actual_offsets[start:end] = (
-        #         self.neighbour_offsets[start:end].float() @ self.cell[batch]
-        #     )
 
         return self._positions[j] - self._positions[i] + actual_offsets
 
@@ -175,7 +176,10 @@ class AtomicGraphBatch(AtomicGraph):
         return self.ptr[1:] - self.ptr[:-1]
 
     def to(self, device: torch.device | str) -> AtomicGraphBatch:
-        labels = {k: v.to(device) for k, v in self.labels.items()}
+        def tensor_dict_to_device(
+            d: dict[str, torch.Tensor]
+        ) -> dict[str, torch.Tensor]:
+            return {k: v.to(device) for k, v in d.items()}
 
         return AtomicGraphBatch(
             Z=self.Z.to(device),
@@ -185,7 +189,9 @@ class AtomicGraphBatch(AtomicGraph):
             cells=self.cells.to(device),
             neighbour_offsets=self.neighbour_offsets.to(device),
             ptr=self.ptr.to(device),
-            **labels,
+            structure_labels=tensor_dict_to_device(self.structure_labels),
+            atom_labels=tensor_dict_to_device(self.atom_labels),
+            edge_labels=tensor_dict_to_device(self.edge_labels),
         )
 
     @property
@@ -204,14 +210,21 @@ def _collate_atomic_graphs(graphs: list[AtomicGraph]) -> AtomicGraphBatch:
     cells = torch.stack([g.cell for g in graphs])
     neighbour_offsets = torch.cat([g.neighbour_offsets for g in graphs])
 
-    # TODO: check that all graphs have the same labels
-    # TODO: move to per-atom, per-edge and per-graph labels so that we can
-    # collate them appropriately
-    labels = {
-        k: torch.cat([g.labels[k] for g in graphs]) for k in graphs[0].labels
+    # per-atom and per-edge labels are concatenated along the first axis
+    per_atom_labels = {
+        k: torch.cat([g.atom_labels[k] for g in graphs])
+        for k in graphs[0].atom_labels
     }
-    if "stress" in labels:
-        labels["stress"] = labels["stress"].reshape(-1, 3, 3)
+    per_edge_labels = {
+        k: torch.cat([g.edge_labels[k] for g in graphs])
+        for k in graphs[0].edge_labels
+    }
+
+    # per-structure labels are concatenated along a new batch axis (0)
+    per_structure_labels = {
+        k: torch.stack([g.structure_labels[k] for g in graphs])
+        for k in graphs[0].structure_labels
+    }
 
     # standard way to calculate the batch and ptr properties
     batch = torch.cat(
@@ -225,12 +238,14 @@ def _collate_atomic_graphs(graphs: list[AtomicGraph]) -> AtomicGraphBatch:
     )
 
     return AtomicGraphBatch(
-        Z=cast(torch.ShortTensor, Z),
-        positions=cast(torch.FloatTensor, positions),
-        neighbour_index=cast(torch.LongTensor, neighbour_index),
-        batch=cast(torch.LongTensor, batch),
-        cells=cast(torch.FloatTensor, cells),
-        neighbour_offsets=cast(torch.ShortTensor, neighbour_offsets),
-        ptr=cast(torch.LongTensor, ptr),
-        **labels,
+        Z=Z,
+        positions=positions,
+        neighbour_index=neighbour_index,
+        cells=cells,
+        neighbour_offsets=neighbour_offsets,
+        batch=batch,
+        ptr=ptr,
+        atom_labels=per_atom_labels,
+        edge_labels=per_edge_labels,
+        structure_labels=per_structure_labels,
     )

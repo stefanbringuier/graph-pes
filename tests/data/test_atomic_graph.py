@@ -71,32 +71,31 @@ def test_device_casting():
 def test_extract_information():
     atoms = Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)], pbc=False)
     atoms.info["energy"] = -1.0
-    atoms.info["forces"] = np.zeros((2, 3))
+    atoms.arrays["forces"] = np.zeros((2, 3))
 
     # test defaults (all information extracted)
-    info = extract_information(atoms)
-    assert info["energy"] == -1.0
-    assert info["forces"].shape == (2, 3)
+    atom_info, structure_info = extract_information(atoms)
+    assert structure_info["energy"] == -1.0
+    assert atom_info["forces"].shape == (2, 3)
     for key in ["numbers", "positions", "cell", "pbc"]:
-        assert key not in info
+        assert key not in atom_info
+        assert key not in structure_info
 
     # test explicit keys
-    info = extract_information(atoms, labels=["energy"])
-    assert info["energy"] == -1.0
-    assert "forces" not in info
+    atom_info, structure_info = extract_information(
+        atoms, structure_keys=["energy"], atom_keys=[]
+    )
+    assert structure_info["energy"] == -1.0
+    assert "forces" not in atom_info
 
     # test error on missing keys
     with pytest.raises(KeyError):
-        extract_information(atoms, labels=["missing"])
-
-    # test warning on ignoring non-tensor keys with default mode
-    atoms.info["string"] = "test"
-    with pytest.warns(UserWarning):
-        extract_information(atoms)
+        extract_information(atoms, structure_keys=["missing"])
 
     # error if we explicitly ask for a non-tensor key
+    atoms.info["string"] = "test"
     with pytest.raises(ValueError):
-        extract_information(atoms, labels=["string"])
+        extract_information(atoms, structure_keys=["string"])
 
 
 def test_isolated_api():

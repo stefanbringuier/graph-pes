@@ -1,6 +1,6 @@
 from ase import Atoms
-from graph_pes.data import AtomicGraph, convert_to_atomic_graphs
-from graph_pes.data.batching import AtomicDataLoader, AtomicGraphBatch
+from graph_pes.data import convert_to_atomic_graphs
+from graph_pes.data.batching import AtomicGraphBatch
 
 STRUCTURES = [
     Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)], pbc=False),

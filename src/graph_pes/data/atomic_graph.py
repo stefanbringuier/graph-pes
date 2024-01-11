@@ -7,7 +7,7 @@ import ase
 import numpy as np
 import torch
 from ase.neighborlist import neighbor_list
-from jaxtyping import Float, Int
+from jaxtyping import Float, Int, Shaped
 from torch import Tensor
 
 from ..util import as_possible_tensor, shape_repr
@@ -48,13 +48,17 @@ class AtomicGraph:
         neighbour_index: Int[Tensor, "2 E"],
         cell: Float[Tensor, "3 3"],
         neighbour_offsets: Int[Tensor, "E 3"],
-        **labels: Tensor,
+        atom_labels: dict[str, Shaped[Tensor, "N ..."]] | None = None,
+        edge_labels: dict[str, Shaped[Tensor, "E ..."]] | None = None,
+        structure_labels: dict[str, Tensor] | None = None,
     ):
         self.Z = Z
         self.neighbour_index = neighbour_index
         self.cell = cell
         self.neighbour_offsets = neighbour_offsets
-        self.labels = labels
+        self.atom_labels = atom_labels or {}
+        self.edge_labels = edge_labels or {}
+        self.structure_labels = structure_labels or {}
 
         # we store positions privately, such that we can warn users
         # who access them directly, via the .position property below,
@@ -68,7 +72,9 @@ class AtomicGraph:
         Z: Int[Tensor, "N"],
         positions: Float[Tensor, "N 3"],
         neighbour_index: Int[Tensor, "2 E"],
-        **labels: torch.Tensor,
+        atom_labels: dict[str, Shaped[Tensor, "N ..."]] | None = None,
+        edge_labels: dict[str, Shaped[Tensor, "E ..."]] | None = None,
+        structure_labels: dict[str, Tensor] | None = None,
     ) -> AtomicGraph:
         """
         Create a graph from a structure with no periodic boundary conditions.
@@ -96,7 +102,9 @@ class AtomicGraph:
             neighbour_index=neighbour_index,
             cell=cell,
             neighbour_offsets=neighbour_offsets,
-            **labels,
+            atom_labels=atom_labels,
+            edge_labels=edge_labels,
+            structure_labels=structure_labels,
         )
 
     @property
@@ -160,7 +168,9 @@ class AtomicGraph:
 
     def to(self, device: torch.device | str) -> AtomicGraph:
         """Create a copy of this graph on the specified device."""
-        labels = {k: v.to(device) for k, v in self.labels.items()}
+
+        def process_dict(d):
+            return {key: value.to(device) for key, value in d.items()}
 
         return AtomicGraph(
             Z=self.Z.to(device),  # type: ignore
@@ -168,7 +178,9 @@ class AtomicGraph:
             neighbour_index=self.neighbour_index.to(device),  # type: ignore
             cell=self.cell.to(device),  # type: ignore
             neighbour_offsets=self.neighbour_offsets.to(device),  # type: ignore
-            **labels,
+            atom_labels=process_dict(self.atom_labels),
+            edge_labels=process_dict(self.edge_labels),
+            structure_labels=process_dict(self.structure_labels),
         )
 
     def __repr__(self) -> str:
@@ -177,7 +189,9 @@ class AtomicGraph:
             Z=self.Z,
             positions=self._positions,
             neighbour_index=self.neighbour_index,
-            **self.labels,
+            **self.atom_labels,
+            **self.edge_labels,
+            **self.structure_labels,
         )
         return f"AtomicGraph({shape_repr(_dict, sep=', ')}, device={device})"
 
@@ -204,7 +218,7 @@ def convert_to_atomic_graph(
     # in all this, we need to ensure we move from numpy float64 to
     # torch.float (which is float32 by default)
 
-    labels_dict = extract_information(structure, labels)
+    structure_info, atom_info = extract_information(structure, labels)
     i, j, offsets = neighbor_list("ijS", structure, cutoff)
     return AtomicGraph(
         Z=torch.ShortTensor(structure.numbers),
@@ -212,13 +226,16 @@ def convert_to_atomic_graph(
         neighbour_index=torch.LongTensor(np.vstack([i, j])),
         cell=torch.FloatTensor(structure.cell.array),
         neighbour_offsets=torch.ShortTensor(offsets),
-        **labels_dict,
+        atom_labels=atom_info,
+        structure_labels=structure_info,
     )
 
 
 def extract_information(
-    atoms: ase.Atoms, labels: list[str] | None = None
-) -> dict[str, torch.Tensor]:
+    atoms: ase.Atoms,
+    atom_keys: list[str] | None = None,
+    structure_keys: list[str] | None = None,
+) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
     """
     Extract any additional information from the atoms object.
 
@@ -226,55 +243,74 @@ def extract_information(
     ----------
     atoms
         The ASE Atoms object.
-    labels
-        The names of any additional labels to include in the graph.
-        These must be present in either the `atoms.info`
-        or `atoms.arrays` dict. If not provided, all possible labels
-        will be included.
+    atom_keys
+        The names of any additional per-atom labels to include in the graph.
+        If not provided, all possible labels will be included.
+    structure_keys
+        The names of any additional per-structure labels to include in the
+        graph. If not provided, all possible labels will be included.
+
+    Returns
+    -------
+    atom_info
+        The per-atom labels as tensors
+    structure_info
+        The per-structure labels as tensors
     """
 
-    add_all = labels is None
-    labels = labels or []
+    return (
+        extract_tensors(
+            atoms.arrays, atom_keys, ignore=["numbers", "positions"]
+        ),
+        extract_tensors(atoms.info, structure_keys, ignore=["cell", "pbc"]),
+    )
 
-    labels_dict = {}
 
-    to_ignore = ["numbers", "positions", "cell", "pbc"]
-    other_ignored = []
+def extract_tensors(
+    info_dict: dict[str, object],
+    labels: list[str] | None,
+    ignore: list[str] | None = None,
+) -> dict[str, Tensor]:
+    """
+    Grab any tensors from the info dict.
 
-    possible_matches = set(atoms.info.keys()) | set(atoms.arrays.keys())
-    if any(label not in possible_matches for label in labels):
-        raise KeyError(
-            f"Labels {labels} are not present in the atoms object."
-            f"Possible matches are: {possible_matches}"
-        )
+    If labels is None, all items will be included. We warn if any of the
+    items are not tensors, but continue anyway.
+    If labels are provided, they must be present in the info dict,
+    and be able to be converted to tensors.
+    """
 
-    for info_dict in [atoms.info, atoms.arrays]:
-        for key, value in info_dict.items():
-            if not add_all and key not in labels:
-                continue
-            if key in to_ignore:
-                continue
+    strict = labels is not None
+    ignore = ignore or []
 
-            t = as_possible_tensor(value)
+    if strict:
+        missing = set(labels) - set(info_dict.keys())
+        if missing:
+            raise KeyError(
+                f"The following labels are not present in the info dict: "
+                f"{', '.join(missing)}"
+            )
 
-            if t is None:
-                if add_all:
-                    other_ignored.append(key)
-                    continue
-                else:
-                    raise ValueError(
-                        f"Label '{key}' is not a tensor and cannot be included."
-                    )
+    labels = labels if labels is not None else list(info_dict.keys())
+    tensor_dict = {}
 
-            labels_dict[key] = t.float()
+    for key, value in info_dict.items():
+        if key not in labels or key in ignore:
+            continue
 
-    if other_ignored:
-        warnings.warn(
-            f"The following labels are not tensors and will be ignored: "
-            f"{', '.join(other_ignored)}",
-            stacklevel=2,
-        )
-    return labels_dict
+        maybe_tensor = as_possible_tensor(value)
+
+        if maybe_tensor is None:
+            if strict:
+                raise ValueError(
+                    f"Label '{key}' is not a tensor and cannot be included."
+                )
+        else:
+            if maybe_tensor.dtype == torch.float64:
+                maybe_tensor = maybe_tensor.float()
+            tensor_dict[key] = maybe_tensor
+
+    return tensor_dict
 
 
 def convert_to_atomic_graphs(
