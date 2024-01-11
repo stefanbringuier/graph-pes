@@ -6,6 +6,7 @@ from graph_pes.data.atomic_graph import (
     AtomicGraph,
     convert_to_atomic_graph,
     convert_to_atomic_graphs,
+    extract_information,
 )
 
 ISOLATED_ATOM = Atoms("H", positions=[(0, 0, 0)], pbc=False)
@@ -65,3 +66,16 @@ def test_device_casting():
     cpu_graph = graph.to("cpu")
     assert cpu_graph is not graph
     assert cpu_graph._positions.device == torch.device("cpu")
+
+
+def test_extract_information():
+    atoms = Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)], pbc=False)
+    atoms.info["energy"] = -1.0
+    atoms.info["forces"] = np.zeros((2, 3))
+
+    info = extract_information(atoms)
+    assert info["energy"] == -1.0
+    assert info["forces"].shape == (2, 3)
+
+    for key in ["numbers", "positions", "cell", "pbc"]:
+        assert key not in info

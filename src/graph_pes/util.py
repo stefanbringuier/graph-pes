@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Iterator, Sequence, TypeVar
 
+import numpy as np
 import torch
 from ase.data import chemical_symbols
 
@@ -26,8 +27,7 @@ def pairs(a: Sequence[T]) -> Iterator[tuple[T, T]]:
     >>> list(pairs([1, 2, 3]))
     [(1, 2), (2, 3)]
     """
-    for i in range(len(a) - 1):
-        yield a[i], a[i + 1]
+    return zip(a, a[1:])
 
 
 def shape_repr(
@@ -83,3 +83,29 @@ def to_chem_symbol(z: int):
     'Og'
     """
     return chemical_symbols[z]
+
+
+def as_possible_tensor(value: object) -> torch.Tensor | None:
+    """
+    Convert a value to a tensor if possible.
+
+    Parameters
+    ----------
+    value
+        The value to convert.
+    """
+
+    if isinstance(value, torch.Tensor):
+        return value
+
+    if isinstance(value, np.ndarray):
+        return torch.from_numpy(value)
+
+    if isinstance(value, (int, float)):
+        return torch.tensor([value])
+
+    try:
+        return torch.tensor(value)
+
+    except Exception:
+        return None

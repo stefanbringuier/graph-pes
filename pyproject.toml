@@ -15,7 +15,14 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 keywords = []
-dependencies = ["torch", "torch-geometric", "pytorch-lightning", "ase", "numpy"]
+dependencies = [
+    "torch",
+    "torch-geometric",
+    "pytorch-lightning",
+    "ase",
+    "numpy",
+    "jaxtyping",
+]
 requires-python = ">=3.8"
 
 [project.optional-dependencies]
@@ -66,3 +73,12 @@ line-ending = "auto"
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+[tool.coverage.report]
+exclude_also = [
+    "def __repr__",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+    "\\.\\.\\.",
+    "except ImportError",
+]

@@ -7,9 +7,10 @@ import ase
 import numpy as np
 import torch
 from ase.neighborlist import neighbor_list
-from graph_pes.util import shape_repr
 from jaxtyping import Float, Int
 from torch import Tensor
+
+from ..util import as_possible_tensor, shape_repr
 
 
 class AtomicGraph:
@@ -182,14 +183,14 @@ class AtomicGraph:
 
 
 def convert_to_atomic_graph(
-    atoms: ase.Atoms, cutoff: float, labels: list[str] | None = None
+    structure: ase.Atoms, cutoff: float, labels: list[str] | None = None
 ) -> AtomicGraph:
     """
     Convert an ASE Atoms object to an AtomicGraph.
 
     Parameters
     ----------
-    atoms
+    structures
         The ASE Atoms object.
     cutoff
         The cutoff distance for neighbour finding.
@@ -203,13 +204,13 @@ def convert_to_atomic_graph(
     # in all this, we need to ensure we move from numpy float64 to
     # torch.float (which is float32 by default)
 
-    labels_dict = extract_information(atoms, labels)
-    i, j, offsets = neighbor_list("ijS", atoms, cutoff)
+    labels_dict = extract_information(structure, labels)
+    i, j, offsets = neighbor_list("ijS", structure, cutoff)
     return AtomicGraph(
-        Z=torch.ShortTensor(atoms.numbers),
-        positions=torch.FloatTensor(atoms.positions),
+        Z=torch.ShortTensor(structure.numbers),
+        positions=torch.FloatTensor(structure.positions),
         neighbour_index=torch.LongTensor(np.vstack([i, j])),
-        cell=torch.FloatTensor(atoms.cell.array),
+        cell=torch.FloatTensor(structure.cell.array),
         neighbour_offsets=torch.ShortTensor(offsets),
         **labels_dict,
     )
@@ -269,43 +270,17 @@ def extract_information(
     return labels_dict
 
 
-def as_possible_tensor(value: object) -> torch.Tensor | None:
-    """
-    Convert a value to a tensor if possible.
-
-    Parameters
-    ----------
-    value
-        The value to convert.
-    """
-
-    if isinstance(value, torch.Tensor):
-        return value
-
-    if isinstance(value, np.ndarray):
-        return torch.from_numpy(value)
-
-    if isinstance(value, (int, float)):
-        return torch.tensor([value])
-
-    try:
-        return torch.tensor(value)
-
-    except Exception:
-        return None
-
-
 def convert_to_atomic_graphs(
     structures: Iterable[ase.Atoms],
     cutoff: float,
     labels: list[str] | None = None,
 ) -> list[AtomicGraph]:
     """
-    Convert a collection of ASE `Atoms` into a list of `AtomicGraph`s.
+    Convert a collection of ASE Atoms into a list of AtomicGraphs.
 
     Parameters
     ----------
-    atoms
+    structures
         The ASE Atoms objects.
     cutoff
         The cutoff distance for neighbour finding.
