@@ -4,6 +4,8 @@ import warnings
 from typing import Sequence, cast
 
 import torch
+from jaxtyping import Float, Int
+from torch import Tensor
 from torch.utils.data import DataLoader as TorchDataLoader
 from torch_geometric.utils import scatter
 
@@ -11,15 +13,26 @@ from .atomic_graph import AtomicGraph
 
 
 def sum_per_structure(
-    property: torch.Tensor, graph: AtomicGraph | AtomicGraphBatch
+    x: torch.Tensor, graph: AtomicGraph | AtomicGraphBatch
 ) -> torch.Tensor:
+    """
+    Sum a per-atom property into a per-structure property, respecting
+    any batch structure of the input graph.
+
+    Parameters
+    ----------
+    x
+        The per-atom property to sum.
+    graph
+        The graph to sum over.
+    """
     if isinstance(graph, AtomicGraphBatch):
         # we have more than one structure: sum over local energies to
         # get a total energy for each structure
-        return scatter(property, graph.batch, dim=0, reduce="sum")
+        return scatter(x, graph.batch, dim=0, reduce="sum")
     else:
         # we only have one structure: sum over all the atoms
-        return property.sum()
+        return x.sum()
 
 
 class AtomicDataLoader(TorchDataLoader):
@@ -68,32 +81,46 @@ class AtomicDataLoader(TorchDataLoader):
 class AtomicGraphBatch(AtomicGraph):
     """
     A disconnected graph representing multiple atomic structures.
-    Inherits from :class:`AtomicGraph`, and so contains all of the
-    same properties, together with the following:
 
-    Additional properties:
-    ----------------------
-    batch: torch.LongTensor
-        The structure index of each atom, e.g. [0, 0, 0, 1, 1, 1, 1, 2, 2, 2].
+    .. note::
+        We use `jaxtyping <https://docs.kidger.site/jaxtyping/>`_ notation
+        to annotate all tensor shapes. Each AtomicGraphBatch contains
+        :math:`B` structures, with a total of :math:`Nb` atoms
+        and :math:`Eb` edges.
+
+    Parameters
+    ----------
+    Z
+        The atomic numbers of the atoms.
+    positions
+        The positions of the atoms.
+    neighbour_index
+        An edge list specifying neighbouring atoms :math:`j`
+        for each central atom :math:`i`.
+    cells
+        The unit cells of the structure.
+    neighbour_offsets
+        An edge list specifying the periodic offset of neighbouring atoms
+        :math:`j` for each central atom :math:`i`.
+    batch
+        The structure index of each atom, e.g. `[0, 0, 0, 1, 1, 1, 1, 2, 2, 2]`.
         In this case, the batch contains 3 structures, with 3, 4 and 3 atoms
-        Shape: (n_atoms,)
-    ptr: torch.LongTensor
+    ptr
         A pointer to the start and end of each structure in the batch.
-        In the above example, this would be [0, 3, 7, 10].
-        Shape: (n_structures + 1,)
-    n_structures: int
-        The number of structures in the batch.
+        In the above example, this would be `[0, 3, 7, 10]`.
+    labels
+        Additional, user defined labels for the structure/atoms/edges.
     """
 
     def __init__(
         self,
-        Z: torch.ShortTensor,
-        positions: torch.FloatTensor,
-        neighbour_index: torch.LongTensor,
-        batch: torch.LongTensor,
-        cells: torch.FloatTensor,
-        neighbour_offsets: torch.ShortTensor,
-        ptr: torch.LongTensor,
+        Z: Int[Tensor, "Nb"],
+        positions: Float[Tensor, "Nb 3"],
+        neighbour_index: Int[Tensor, "2 Eb"],
+        cells: Float[Tensor, "B 3 3"],
+        neighbour_offsets: Int[Tensor, "Eb 3"],
+        batch: Int[Tensor, "Nb"],
+        ptr: Int[Tensor, "B+1"],
         **labels: torch.Tensor,
     ):
         super().__init__(
@@ -139,10 +166,12 @@ class AtomicGraphBatch(AtomicGraph):
 
     @property
     def n_structures(self) -> int:
+        """The number of structures within this batch."""
         return self.ptr.shape[0] - 1
 
     @property
     def structure_sizes(self) -> torch.Tensor:
+        """The number of atoms in each structure within this batch."""
         return self.ptr[1:] - self.ptr[:-1]
 
     def to(self, device: torch.device | str) -> AtomicGraphBatch:
@@ -176,6 +205,8 @@ def _collate_atomic_graphs(graphs: list[AtomicGraph]) -> AtomicGraphBatch:
     neighbour_offsets = torch.cat([g.neighbour_offsets for g in graphs])
 
     # TODO: check that all graphs have the same labels
+    # TODO: move to per-atom, per-edge and per-graph labels so that we can
+    # collate them appropriately
     labels = {
         k: torch.cat([g.labels[k] for g in graphs]) for k in graphs[0].labels
     }

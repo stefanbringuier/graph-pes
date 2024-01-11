@@ -1,125 +1,102 @@
 from __future__ import annotations
 
 import warnings
-from typing import Iterable, overload
+from typing import Iterable
 
+import ase
 import numpy as np
 import torch
-from ase import Atoms
 from ase.neighborlist import neighbor_list
 from graph_pes.util import shape_repr
+from jaxtyping import Float, Int
+from torch import Tensor
 
 
 class AtomicGraph:
-    r"""
-    A graph representation of an atomic structure.
-    Fully compatible with PyTorch/Geometric/Lightning.
+    """
+    A graph representation of an atomic structure, compatible with
+    PyTorch/Geometric/Lightning.
+
+    .. note::
+        We use `jaxtyping <https://docs.kidger.site/jaxtyping/>`_ notation
+        to annotate all tensor shapes. Each AtomicGraph has :math:`N` atoms
+        and :math:`E` edges
 
     Parameters
     ----------
-    Z: torch.Tensor
-        The atomic numbers of the atoms. Shape: (n_atoms,)
-    positions: torch.Tensor
-        The positions of the atoms. Shape: (n_atoms, 3)
-    neighbour_index: torch.LongTensor
+    Z
+        The atomic numbers of the atoms.
+    positions
+        The positions of the atoms.
+    neighbour_index
         An edge list specifying neighbouring atoms :math:`j`
-        for each central atom :math:`i`. Shape: (2, n_edges)
-    unit_cell: torch.Tensor | None
-        The unit cell of the structure. Shape: (3, 3)
-    neighbour_offsets: torch.Tensor | None
-        Offsets to apply to neighbour :math:`j` positions to account for
-        periodic boundary conditions such that
-
-        .. code-block:: python
-
-            i, j = neighbour_index
-            positions_i = positions[i]
-            positions_j = positions[j] + neighbour_offsets @ unit_cell
-            vectors_i_to_j = positions_j - positions_i
-
-        Shape: (n_edges, 3)
-    labels: dict[str, torch.Tensor]
+        for each central atom :math:`i`.
+    cell
+        The unit cell of the structure.
+    neighbour_offsets
+        An edge list specifying the periodic offset of neighbouring atoms
+        :math:`j` for each central atom :math:`i`.
+    labels
         Additional, user defined labels for the structure/atoms/edges.
     """
 
-    @overload
     def __init__(
         self,
-        Z: torch.ShortTensor,
-        positions: torch.FloatTensor,
-        neighbour_index: torch.LongTensor,
-        cell: torch.FloatTensor,
-        neighbour_offsets: torch.ShortTensor,
-        **labels: torch.Tensor,
+        Z: Int[Tensor, "N"],
+        positions: Float[Tensor, "N 3"],
+        neighbour_index: Int[Tensor, "2 E"],
+        cell: Float[Tensor, "3 3"],
+        neighbour_offsets: Int[Tensor, "E 3"],
+        **labels: Tensor,
     ):
-        ...
-
-    @overload
-    def __init__(
-        self,
-        Z: torch.ShortTensor,
-        positions: torch.FloatTensor,
-        neighbour_index: torch.LongTensor,
-        cell: None = None,
-        neighbour_offsets: None = None,
-        **labels: torch.Tensor,
-    ):
-        ...
-
-    def __init__(
-        self,
-        Z: torch.ShortTensor,
-        positions: torch.FloatTensor,
-        neighbour_index: torch.LongTensor,
-        cell: torch.FloatTensor | None = None,
-        neighbour_offsets: torch.ShortTensor | None = None,
-        **labels: torch.Tensor,
-    ):
-        # sanitise inputs:
-        if neighbour_offsets is not None and cell is None:
-            raise ValueError(
-                "If neighbour_offsets is provided, cell must also be provided."
-            )
-
         self.Z = Z
-        """Atomic numbers of the atoms. Shape: (`n_atoms`,)"""
-
         self.neighbour_index = neighbour_index
-        """An edge list specifying neighbouring atoms :math:`j`
-        for each central atom :math:`i`. Shape: (2, n_edges)"""
-
-        nothing_cell = torch.FloatTensor(torch.zeros((3, 3)))
-        cell = cell if cell is not None else nothing_cell
         self.cell = cell
-        """The unit cell of the structure. Shape: (3, 3)"""
-
-        zero_offsets = torch.ShortTensor(
-            torch.zeros((neighbour_index.shape[1], 3), dtype=torch.short)
-        )
-        neighbour_offsets = (
-            neighbour_offsets if neighbour_offsets is not None else zero_offsets
-        )
         self.neighbour_offsets = neighbour_offsets
-        """Offsets to apply to neighbour :math:`j` positions to
-        account for periodic boundary conditions such that
-
-        .. code-block:: python
-
-            i, j = neighbour_index
-            positions_i = positions[i]
-            positions_j = positions[j] + neighbour_offsets @ unit_cell
-            vectors_i_to_j = positions_j - positions_i
-
-        Shape: (n_edges, 3)"""
-
         self.labels = labels
-        """Additional, user defined labels for the structure/atoms/edges."""
 
         # we store positions privately, such that we can warn users
         # who access them directly, via the .position property below,
         # in case they naïvely use them to calculate neighbour vectors
         # or distances, which will be incorrect for periodic systems.
         self._positions = positions
+
+    @classmethod
+    def from_isolated_structure(
+        cls,
+        Z: Int[Tensor, "N"],
+        positions: Float[Tensor, "N 3"],
+        neighbour_index: Int[Tensor, "2 E"],
+        **labels: torch.Tensor,
+    ) -> AtomicGraph:
+        """
+        Create a graph from a structure with no periodic boundary conditions.
+
+        Parameters
+        ----------
+        Z
+            The atomic numbers of the atoms.
+        positions
+            The positions of the atoms.
+        neighbour_index
+            An edge list specifying neighbouring atoms :math:`j`
+            for each central atom :math:`i`.
+        labels
+            Additional, user defined labels for the structure/atoms/edges.
+        """
+        cell = torch.FloatTensor(torch.zeros((3, 3)))
+        neighbour_offsets = torch.Tensor(
+            torch.zeros((neighbour_index.shape[1], 3))
+        )
+
+        return cls(
+            Z=Z,
+            positions=positions,
+            neighbour_index=neighbour_index,
+            cell=cell,
+            neighbour_offsets=neighbour_offsets,
+            **labels,
+        )
 
     @property
     def has_cell(self) -> bool:
@@ -128,8 +105,6 @@ class AtomicGraph:
 
     @property
     def positions(self):
-        """The positions of the atoms. Shape: (n_atoms, 3)"""
-
         if self.has_cell:
             # raise a warning if the user accesses the positions directly,
             # since the most likely cause for this is that they are attempting
@@ -145,10 +120,12 @@ class AtomicGraph:
                 "systems, neighbour_vectors != positions[j] - positions[i]!",
                 stacklevel=2,
             )
+            # TODO link to docs
+
         return self._positions
 
     @property
-    def neighbour_vectors(self) -> torch.Tensor:
+    def neighbour_vectors(self) -> Float[Tensor, "E 3"]:
         """
         The vectors from central atoms :math:`i` to neighbours :math:`j`,
         respecting any periodic boundary conditions.
@@ -163,7 +140,7 @@ class AtomicGraph:
         return neighbour_positions - self._positions[i]
 
     @property
-    def neighbour_distances(self) -> torch.Tensor:
+    def neighbour_distances(self) -> Float[Tensor, "E"]:
         """
         The distances from central atoms :math:`i` to neighbours :math:`j`,
         respecting any periodic boundary conditions.
@@ -205,18 +182,18 @@ class AtomicGraph:
 
 
 def convert_to_atomic_graph(
-    atoms: Atoms, cutoff: float, labels: list[str] | None = None
+    atoms: ase.Atoms, cutoff: float, labels: list[str] | None = None
 ) -> AtomicGraph:
     """
     Convert an ASE Atoms object to an AtomicGraph.
 
     Parameters
     ----------
-    atoms : Atoms
+    atoms
         The ASE Atoms object.
-    cutoff : float
+    cutoff
         The cutoff distance for neighbour finding.
-    labels : list[str]
+    labels
         The names of any additional labels to include in the graph.
         These must be present in either the `atoms.info`
         or `atoms.arrays` dict. If not provided, all possible labels
@@ -227,9 +204,7 @@ def convert_to_atomic_graph(
     # torch.float (which is float32 by default)
 
     labels_dict = extract_information(atoms, labels)
-
     i, j, offsets = neighbor_list("ijS", atoms, cutoff)
-
     return AtomicGraph(
         Z=torch.ShortTensor(atoms.numbers),
         positions=torch.FloatTensor(atoms.positions),
@@ -241,16 +216,16 @@ def convert_to_atomic_graph(
 
 
 def extract_information(
-    atoms: Atoms, labels: list[str] | None = None
+    atoms: ase.Atoms, labels: list[str] | None = None
 ) -> dict[str, torch.Tensor]:
     """
     Extract any additional information from the atoms object.
 
     Parameters
     ----------
-    atoms : Atoms
+    atoms
         The ASE Atoms object.
-    labels : list[str]
+    labels
         The names of any additional labels to include in the graph.
         These must be present in either the `atoms.info`
         or `atoms.arrays` dict. If not provided, all possible labels
@@ -300,7 +275,7 @@ def as_possible_tensor(value: object) -> torch.Tensor | None:
 
     Parameters
     ----------
-    value : object
+    value
         The value to convert.
     """
 
@@ -321,7 +296,7 @@ def as_possible_tensor(value: object) -> torch.Tensor | None:
 
 
 def convert_to_atomic_graphs(
-    structures: Iterable[Atoms],
+    structures: Iterable[ase.Atoms],
     cutoff: float,
     labels: list[str] | None = None,
 ) -> list[AtomicGraph]:
@@ -330,11 +305,11 @@ def convert_to_atomic_graphs(
 
     Parameters
     ----------
-    atoms : Iterable[Atoms]
+    atoms
         The ASE Atoms objects.
-    cutoff : float
+    cutoff
         The cutoff distance for neighbour finding.
-    labels : list[str]
+    labels
         The names of any additional labels to include in the graph.
         These must be present in either the `atoms.info`
         or `atoms.arrays` dict. If not provided, all possible labels

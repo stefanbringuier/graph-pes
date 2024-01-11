@@ -5,7 +5,7 @@ models that operate on graph representations of atomic structures.
 Under-the-hood, this relies on Pytorch/Geometric for efficient tensor operations.
 
 Batteries are included:
-- **easy data manipulations** : see docs relating to `AtomicGraph`, batching etc.
+- **easy data manipulations** : see docs relating to `AtomicGraph`, intuitive batching, easy conversion from ase etc.
 - **easy construction of PES models** : implement `predict_local_energies` , easy to save, load and share
 - **easy training** : forces, energies, well conditioned losses etc.
 

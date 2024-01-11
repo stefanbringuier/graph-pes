@@ -32,10 +32,12 @@ exclude_patterns = []
 intersphinx_mapping = {
     "python": ("http://docs.python.org/", None),
     "torch": ("https://pytorch.org/docs/master/", None),
+    "ase": ("https://wiki.fysik.dtu.dk/ase/", None),
 }
 html_theme = "furo"
 autodoc_member_order = "bysource"
 maximum_signature_line_length = 100
+autodoc_typehints = "description"
 
 copybutton_prompt_text = (
     r">>> |\.\.\. |\$ |In \[\d*\]: | {2,5}\.\.\.: | {5,8}: "
