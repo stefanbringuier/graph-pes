@@ -73,9 +73,37 @@ def test_extract_information():
     atoms.info["energy"] = -1.0
     atoms.info["forces"] = np.zeros((2, 3))
 
+    # test defaults (all information extracted)
     info = extract_information(atoms)
     assert info["energy"] == -1.0
     assert info["forces"].shape == (2, 3)
-
     for key in ["numbers", "positions", "cell", "pbc"]:
         assert key not in info
+
+    # test explicit keys
+    info = extract_information(atoms, labels=["energy"])
+    assert info["energy"] == -1.0
+    assert "forces" not in info
+
+    # test error on missing keys
+    with pytest.raises(KeyError):
+        extract_information(atoms, labels=["missing"])
+
+    # test warning on ignoring non-tensor keys with default mode
+    atoms.info["string"] = "test"
+    with pytest.warns(UserWarning):
+        extract_information(atoms)
+
+    # error if we explicitly ask for a non-tensor key
+    with pytest.raises(ValueError):
+        extract_information(atoms, labels=["string"])
+
+
+def test_isolated_api():
+    graph = AtomicGraph.from_isolated_structure(
+        Z=torch.tensor([1, 1]),
+        positions=torch.tensor([[0, 0, 0], [0, 0, 1]]),
+        neighbour_index=torch.tensor([[0, 1], [1, 0]]),
+    )
+    assert graph.n_atoms == 2, "unexpected graph created"
+    assert not graph.has_cell, "graph should not have a cell"

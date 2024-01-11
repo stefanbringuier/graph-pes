@@ -241,6 +241,13 @@ def extract_information(
     to_ignore = ["numbers", "positions", "cell", "pbc"]
     other_ignored = []
 
+    possible_matches = set(atoms.info.keys()) | set(atoms.arrays.keys())
+    if any(label not in possible_matches for label in labels):
+        raise KeyError(
+            f"Labels {labels} are not present in the atoms object."
+            f"Possible matches are: {possible_matches}"
+        )
+
     for info_dict in [atoms.info, atoms.arrays]:
         for key, value in info_dict.items():
             if not add_all and key not in labels:
