@@ -21,3 +21,4 @@
 -   [ ] schnet embedding: create horseshoe custom curve?
 -   [ ] Do I need both envelopes? surely only first required
 -   [ ] learnable mlp that is just linear combo of rbf? do some feature selection-esque L1 regularization?
+-  remove cell stress (?)

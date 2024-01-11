@@ -60,11 +60,15 @@ class GraphPESModel(nn.Module, ABC):
             The graph representation of the structure/s.
         """
 
+        # local predictions
         local_energies = self.predict_local_energies(graph).squeeze()
-        local_energies = self._energy_transforms["local"](local_energies, graph)
+        local_transform = self._energy_transforms.get("local", Identity())
+        local_energies = local_transform(local_energies, graph)
 
+        # sum over the atoms in each structure
         total_E = sum_per_structure(local_energies, graph)
-        total_E = self._energy_transforms["total"](total_E, graph)
+        total_transform = self._energy_transforms.get("total", Identity())
+        total_E = total_transform(total_E, graph)
 
         return total_E
 
@@ -74,8 +78,7 @@ class GraphPESModel(nn.Module, ABC):
             {
                 "local": Chain(
                     [PerSpeciesScale(), PerSpeciesOffset()], trainable=True
-                ),
-                "total": Identity(),
+                )
             }
         )
 
@@ -166,13 +169,7 @@ def get_predictions(pes: GraphPESModel, structure: AtomicGraph) -> Prediction:
         # don't care about stress
         with require_grad(structure._positions):
             total_energy = pes(structure)
-            dE_dR = torch.autograd.grad(
-                total_energy.sum(),
-                structure._positions,
-                create_graph=True,
-                allow_unused=True,
-                materialize_grads=True,
-            )[0]
+            dE_dR = get_gradient(total_energy, (structure._positions,))[0]
         return Prediction(total_energy, -dE_dR)
 
     # the virial stress tensor is the gradient of the total energy wrt

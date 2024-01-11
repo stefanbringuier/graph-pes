@@ -1,9 +1,7 @@
-"""Defines :class:`AtomicGraph`, the central data object of GraphPES."""
-
 from __future__ import annotations
 
 import warnings
-from typing import Iterable
+from typing import Iterable, overload
 
 import numpy as np
 import torch
@@ -42,20 +40,31 @@ class AtomicGraph:
         Shape: (n_edges, 3)
     labels: dict[str, torch.Tensor]
         Additional, user defined labels for the structure/atoms/edges.
-
-    Additional Properties:
-    ----------------------
-    neighbour_vectors: torch.Tensor
-        The vectors from central atom :math:`i` to neighbours :math:`j`.
-        Shape: (n_edges, 3)
-    neighbour_distances: torch.Tensor
-        The distances from central atom :math:`i` to neighbours :math:`j`.
-        Shape: (n_edges,)
-    n_atoms: int
-        The number of atoms in the structure.
-    n_edges: int
-        The number of edges in the graph.
     """
+
+    @overload
+    def __init__(
+        self,
+        Z: torch.ShortTensor,
+        positions: torch.FloatTensor,
+        neighbour_index: torch.LongTensor,
+        cell: torch.FloatTensor,
+        neighbour_offsets: torch.ShortTensor,
+        **labels: torch.Tensor,
+    ):
+        ...
+
+    @overload
+    def __init__(
+        self,
+        Z: torch.ShortTensor,
+        positions: torch.FloatTensor,
+        neighbour_index: torch.LongTensor,
+        cell: None = None,
+        neighbour_offsets: None = None,
+        **labels: torch.Tensor,
+    ):
+        ...
 
     def __init__(
         self,

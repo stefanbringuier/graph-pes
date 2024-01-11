@@ -16,3 +16,4 @@ coverage.xml
 .isort.cfg
 .DS_Store
 
+thoughts*
