@@ -2,6 +2,8 @@ lightning_logs
 __pycache__
 **/*.egg-info
 
+docs/build
+
 .pytest_cache
 coverage.xml
 .coverage

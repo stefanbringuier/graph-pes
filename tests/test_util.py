@@ -1,5 +1,4 @@
 import torch
-
 from graph_pes.util import pairs, shape_repr, to_chem_symbol
 
 

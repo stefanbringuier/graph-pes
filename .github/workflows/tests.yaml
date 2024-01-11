@@ -13,7 +13,7 @@ jobs:
             - name: update pip
               run: pip install --upgrade pip
             - name: Install graph-pes
-              run: pip install -e ".[dev]"
+              run: pip install -e ".[test]"
             - name: Run tests
               run: pytest --cov src --cov-report xml
             - name: Upload coverage reports to Codecov

@@ -19,15 +19,15 @@ dependencies = ["torch", "torch-geometric", "pytorch-lightning", "ase", "numpy"]
 requires-python = ">=3.8"
 
 [project.optional-dependencies]
-dev = [
-    "notebook",
-    "pytest",
-    "pytest-cov",
-    "bumpver",
+test = ["pytest", "pytest-cov"]
+dev = ["notebook", "ruff", "bumpver"]
+doc = [
     "sphinx",
     "furo",
     "nbsphinx",
-    "ruff",
+    "sphinx-autobuild",
+    "sphinxext-opengraph",
+    "sphinx-copybutton",
 ]
 publish = ["build", "twine"]
 
