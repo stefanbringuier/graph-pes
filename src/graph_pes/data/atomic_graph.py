@@ -20,8 +20,8 @@ class AtomicGraph:
 
     .. note::
         We use `jaxtyping <https://docs.kidger.site/jaxtyping/>`_ notation
-        to annotate all tensor shapes. Each AtomicGraph has :math:`N` atoms
-        and :math:`E` edges
+        to annotate all tensor shapes. Each :class:`AtomicGraph` contains
+        :math:`N` atoms and :math:`E` edges
 
     Parameters
     ----------
@@ -37,8 +37,12 @@ class AtomicGraph:
     neighbour_offsets
         An edge list specifying the periodic offset of neighbouring atoms
         :math:`j` for each central atom :math:`i`.
-    labels
-        Additional, user defined labels for the structure/atoms/edges.
+    atom_labels
+        Additional, user-defined, per-atom labels.
+    edge_labels
+        Additional, user-defined, per-edge labels.
+    structure_labels
+        Additional, user-defined, per-structure labels.
     """
 
     def __init__(
@@ -88,8 +92,12 @@ class AtomicGraph:
         neighbour_index
             An edge list specifying neighbouring atoms :math:`j`
             for each central atom :math:`i`.
-        labels
-            Additional, user defined labels for the structure/atoms/edges.
+        atom_labels
+            Additional, user-defined, per-atom labels.
+        edge_labels
+            Additional, user-defined, per-edge labels.
+        structure_labels
+            Additional, user-defined, per-structure labels.
         """
         cell = torch.FloatTensor(torch.zeros((3, 3)))
         neighbour_offsets = torch.Tensor(
@@ -173,11 +181,11 @@ class AtomicGraph:
             return {key: value.to(device) for key, value in d.items()}
 
         return AtomicGraph(
-            Z=self.Z.to(device),  # type: ignore
-            positions=self._positions.to(device),  # type: ignore
-            neighbour_index=self.neighbour_index.to(device),  # type: ignore
-            cell=self.cell.to(device),  # type: ignore
-            neighbour_offsets=self.neighbour_offsets.to(device),  # type: ignore
+            Z=self.Z.to(device),
+            positions=self._positions.to(device),
+            neighbour_index=self.neighbour_index.to(device),
+            cell=self.cell.to(device),
+            neighbour_offsets=self.neighbour_offsets.to(device),
             atom_labels=process_dict(self.atom_labels),
             edge_labels=process_dict(self.edge_labels),
             structure_labels=process_dict(self.structure_labels),
@@ -215,10 +223,7 @@ def convert_to_atomic_graph(
         will be included.
     """
 
-    # in all this, we need to ensure we move from numpy float64 to
-    # torch.float (which is float32 by default)
-
-    structure_info, atom_info = extract_information(structure, labels)
+    atom_info, structure_info = extract_information(structure, labels)
     i, j, offsets = neighbor_list("ijS", structure, cutoff)
     return AtomicGraph(
         Z=torch.ShortTensor(structure.numbers),

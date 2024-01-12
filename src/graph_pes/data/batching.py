@@ -63,7 +63,7 @@ class AtomicDataLoader(TorchDataLoader):
     ):
         if "collate_fn" in kwargs:
             warnings.warn(
-                "GraphPES uses a custom collate_fn (`collate_atomic_graphs`), "
+                "graph-pes uses a custom collate_fn (`collate_atomic_graphs`), "
                 "are you sure you want to override this?",
                 stacklevel=2,
             )
@@ -147,17 +147,18 @@ class AtomicGraphBatch(AtomicGraph):
         respecting any periodic boundary conditions.
         """
 
-        # more involved than the single structure case, because each
-        # cell is different
+        # more involved than the single structure case,
+        # because each cell is different
 
-        # easy case of no cell:
         i, j = self.neighbour_index
+
         if not self.has_cell:
             return self._positions[j] - self._positions[i]
 
         # otherwise calculate offsets on a per-structure basis
         actual_offsets = torch.zeros((self.neighbour_index.shape[1], 3))
-        for batch, (start, end) in enumerate(pairs(self.ptr)):  # type: ignore
+        # TODO: parallelise this loop
+        for batch, (start, end) in enumerate(pairs(self.ptr)):
             mask = (i >= start) & (i < end)
             actual_offsets[mask] = (
                 self.neighbour_offsets[mask].float() @ self.cell[batch]

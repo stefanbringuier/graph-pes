@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Iterator, Sequence, TypeVar
+from typing import Iterator, Sequence, TypeVar, overload
 
 import numpy as np
 import torch
 from ase.data import chemical_symbols
+from torch import Tensor
 
 T = TypeVar("T")
 
@@ -13,33 +14,47 @@ MAX_Z = 118
 """The maximum atomic number in the periodic table."""
 
 
+T = TypeVar("T")
+
+
+@overload
 def pairs(a: Sequence[T]) -> Iterator[tuple[T, T]]:
+    ...
+
+
+@overload
+def pairs(a: Tensor) -> Iterator[tuple[Tensor, Tensor]]:
+    ...
+
+
+def pairs(a) -> Iterator[tuple[T, T] | tuple[Tensor, Tensor]]:
     """
     Iterate over pairs of elements in `a`
 
     Parameters
     ----------
-    a: Sequence
-        The sequence to iterate over.
+    a
+        The sequence or tensor to iterate over.
 
     Example
     -------
     >>> list(pairs([1, 2, 3]))
     [(1, 2), (2, 3)]
+
+    >>> list(pairs(Tensor([1, 2, 3])))
+    [(1, 2), (2, 3)]
     """
     return zip(a, a[1:])
 
 
-def shape_repr(
-    dict_of_tensors: dict[str, torch.Tensor], sep: str = ", "
-) -> str:
+def shape_repr(dict_of_tensors: dict[str, Tensor], sep: str = ", ") -> str:
     """
     Generate a string representation of the shapes of the tensors in
     `dict_of_tensors`.
 
     Parameters
     ----------
-    dict_of_tensors: dict[str, torch.Tensor]
+    dict_of_tensors: dict[str, Tensor]
         The dictionary of tensors to represent.
     sep: str
         The separator to use between each tensor.
@@ -55,7 +70,7 @@ def shape_repr(
     'a=[3], b=[4]'
     """
 
-    def _get_shape(tensor: torch.Tensor) -> str:
+    def _get_shape(tensor: Tensor) -> str:
         return "[" + ",".join(str(i) for i in tensor.shape) + "]"
 
     return sep.join(f"{k}={_get_shape(v)}" for k, v in dict_of_tensors.items())
@@ -85,7 +100,7 @@ def to_chem_symbol(z: int):
     return chemical_symbols[z]
 
 
-def as_possible_tensor(value: object) -> torch.Tensor | None:
+def as_possible_tensor(value: object) -> Tensor | None:
     """
     Convert a value to a tensor if possible.
 
@@ -95,17 +110,20 @@ def as_possible_tensor(value: object) -> torch.Tensor | None:
         The value to convert.
     """
 
-    if isinstance(value, torch.Tensor):
+    if isinstance(value, Tensor):
         return value
 
     if isinstance(value, np.ndarray):
-        return torch.from_numpy(value)
+        t = torch.from_numpy(value)
+        if t.dtype == torch.float64:
+            t = t.float()
+        return t
 
     if isinstance(value, (int, float)):
-        return torch.tensor([value])
+        return Tensor([value])
 
     try:
-        return torch.tensor(value)
+        return Tensor(value)
 
     except Exception:
         return None
