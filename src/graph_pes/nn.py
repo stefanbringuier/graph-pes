@@ -1,27 +1,41 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Callable
 
 import torch
 import torch.nn as nn
-from ase.data import chemical_symbols
-from graph_pes.util import pairs
+from graph_pes.util import MAX_Z, pairs
+from torch import Tensor
 
 
 class MLP(nn.Module):
     """
-    A multi-layer perceptron model, alternating linear and activation layers.
+    A multi-layer perceptron model, alternating linear layers and activations.
 
     Parameters
     ----------
     layers: List[int]
         The number of nodes in each layer.
     activation: str or nn.Module
-        The activation function to use.
+        The activation function to use: either a named activation function
+        from `torch.nn`, or a `torch.nn.Module` instance.
     activate_last: bool
-        Whether to apply the activation function to the last layer.
+        Whether to apply the activation function after the last linear layer.
     bias: bool
-        Whether to include a bias term in the linear layers.
+        Whether to include bias terms in the linear layers.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from graph_pes.nn import MLP
+    >>> model = MLP([10, 5, 1])
+    >>> model
+    MLP(10 → 5 → 1, activation=CELU())
+    >>> MLP([10, 5, 1], activation=torch.nn.ReLU())
+    MLP(10 → 5 → 1, activation=ReLU())
+    >>> MLP([10, 5, 1], activation="Tanh")
+    MLP(10 → 5 → 1, activation=Tanh())
     """
 
     def __init__(
@@ -44,7 +58,15 @@ class MLP(nn.Module):
             [nn.Linear(_in, _out, bias=bias) for _in, _out in pairs(layers)]
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Perform a forward pass through the network.
+
+        Parameters
+        ----------
+        x
+            The input to the network.
+        """
         for i, linear in enumerate(self.linear_layers):
             x = linear(x)
             last_layer = i == len(self.linear_layers) - 1
@@ -55,14 +77,17 @@ class MLP(nn.Module):
 
     @property
     def input_size(self):
+        """The size of the input to the network."""
         return self.linear_layers[0].in_features
 
     @property
     def output_size(self):
+        """The size of the output of the network."""
         return self.linear_layers[-1].out_features
 
     @property
     def layer_widths(self):
+        """The widths of the layers in the network."""
         inputs = [layer.in_features for layer in self.linear_layers]
         return inputs + [self.output_size]
 
@@ -86,7 +111,7 @@ def parse_activation(act: str) -> torch.nn.Module:
 
     Parameters
     ----------
-    act: str
+    act
         The activation function to parse.
 
     Returns
@@ -112,120 +137,177 @@ class Product(nn.Module):
         return out
 
 
-class PerSpeciesEmbedding(nn.Module):
-    def __init__(
-        self,
-        Z_keys: torch.Tensor | None = None,
-        values: torch.Tensor | None = None,
-        default: float | None = None,
-        dim: int = 16,
-        requires_grad: bool = True,
-    ):
+class PerSpeciesParameter(torch.nn.Parameter):
+    """
+    A parameter that is indexed by unqiue atomic numbers.
+
+    Lazily keeps track of which atomic numbers have been accessed
+    so as to give accurate counts of trainable parameters.
+
+    Instantiate using the `PerSpeciesParameter.of_dim` class method.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from graph_pes.nn import PerSpeciesParameter
+    >>> param = PerSpeciesParameter.of_dim(10)
+    >>> # do some computation involving some atomic numbers
+    >>> ...
+    >>> param[1], param[6]  # access the parameters for H and C at some point
+    >>> param.numel()  # get the number of trainable parameters
+    20
+    >>> param
+    PerSpeciesParameter({
+         Z : (10,)
+         3 : [ 0.6450, -0.1432, -0.5998,  ...,  0.6023, -0.3033,  0.3528],
+        12 : [-0.2076, -1.3792, -0.0791,  ..., -1.5645,  1.5325, -0.7080]
+    }, requires_grad=True)
+    """
+
+    # include these args for type hint reasons, class construction
+    # actually takes place in __new__, as defined in PyTorch
+    def __init__(self, data: Tensor, requires_grad: bool = True):
         super().__init__()
-        if Z_keys is not None and values is not None:
-            assert len(Z_keys) == len(values)
 
-        if values is not None:
-            dim = values.shape[1]
+        # we lazily keep track of which atomic numbers have been accessed
+        # so as to provide a correct number of trainable weights
+        self._accessed_Zs = set()
 
-        self.Z_keys = torch.tensor([]) if Z_keys is None else Z_keys
-        values = torch.tensor([]) if values is None else values
-        self.values = nn.Parameter(values.float(), requires_grad)
-        self.default = default
-        self.dim = dim
-        self.requires_grad = requires_grad
-
-    def _add_item(self, Z: int, value: torch.Tensor | None = None):
-        if value is None:
-            if self.default is None:
-                # random normal weights
-                value = torch.randn(1, self.dim)
-            else:
-                value = torch.full((1, self.dim), self.default)
-
-        self.Z_keys = torch.cat([self.Z_keys, torch.tensor([Z])])
-        self.values = nn.Parameter(
-            torch.cat([self.values, value]), self.requires_grad
-        )
-
-    def __getitem__(self, Zs: torch.Tensor | int) -> torch.Tensor:
-        if isinstance(Zs, int):
-            Zs = torch.tensor([Zs])
-
-        # if one or more of the Zs aren't in the keys, add them to the keys
-        # and extend the values with the default value
-        unique_Zs = torch.unique(Zs)
-        new_Zs = unique_Zs[~torch.isin(unique_Zs, self.Z_keys)]
-        for Z in new_Zs:
-            self._add_item(Z)
-
-        val_idxs = torch.nonzero(self.Z_keys == Zs[:, None], as_tuple=True)[1]
-        return self.values[val_idxs]
-
-    def __setitem__(self, Z: int, value: torch.Tensor):
-        if Z not in self.Z_keys:
-            self._add_item(Z, value)
-        else:
-            self.values[self.Z_keys == Z] = value
-
-    @torch.no_grad()
-    def __repr__(self):
-        _dict = {}
-        for Z, value in zip(self.Z_keys, self.values):
-            _dict[chemical_symbols[int(Z.item())]] = value
-
-        return f"{self.__class__.__name__}({_dict})"
-
-    def forward(self, Zs: torch.Tensor) -> torch.Tensor:
-        return self[Zs]
-
-
-class PerSpeciesParameter(PerSpeciesEmbedding):
-    def __init__(
-        self,
-        Z_keys: torch.Tensor | None = None,
-        values: torch.Tensor | None = None,
-        default: float = 0.0,
+    @classmethod
+    def of_dim(
+        cls,
+        dim: int,
         requires_grad: bool = True,
+        generator: Callable[[tuple[int, int]], Tensor] | None = None,
     ):
-        if values is not None:
-            values = values.view(-1, 1)
-        super().__init__(Z_keys, values, default, 1, requires_grad)
+        """
+        Create a `PerSpeciesParameter` of the given dimension.
 
-    def __getitem__(self, Zs: torch.Tensor | int) -> torch.Tensor:
-        return super().__getitem__(Zs).squeeze(-1)
+        Parameters
+        ----------
+        dim
+            The size of the parameter.
+        generator
+            The generator to use to create the parameter. Defaults to
+            `torch.randn`.
+        requires_grad
+            Whether the parameter should be trainable.
+        """
+        if generator is None:
+            generator = torch.randn
+        data = generator((MAX_Z, dim))
+        return PerSpeciesParameter(data=data, requires_grad=requires_grad)
 
-    def __setitem__(self, Z: int, value: float):
-        super().__setitem__(Z, torch.tensor([value]))
+    def __getitem__(self, Z: int | Tensor) -> Tensor:
+        """
+        Index the values corresponding to the given atomic number/s.
 
-    def __repr__(self):
-        _dict = {}
-        for Z, value in zip(self.Z_keys, self.values):
-            _dict[chemical_symbols[int(Z.item())]] = value.item()
+        Parameters
+        ----------
+        Z
+            The atomic number/s of the parameter to get.
 
-        return f"{self.__class__.__name__}({_dict})"
+        """
+
+        if isinstance(Z, int):
+            self._accessed_Zs.add(Z)
+        else:
+            for Z_i in torch.unique(Z):
+                self._accessed_Zs.add(Z_i.item())
+        return super().__getitem__(Z)
+
+    def numel(self) -> int:
+        """
+        Get the number of trainable parameters.
+
+        Returns
+        -------
+        The number of trainable parameters.
+        """
+
+        return sum(self[Z].numel() for Z in self._accessed_Zs)
+
+    def __repr__(self) -> str:
+        torch.set_printoptions(threshold=3)
+        Zs = sorted(self._accessed_Zs)
+        with torch.no_grad():
+            matrix = str(self.data[Zs])
+        matrix = matrix[8:-2]  # remove "tensor([" and "])"
+
+        # generate a dictionary of atomic numbers to
+        # their (nicely formatted) values
+        lines = []
+        for z, values in zip(Zs, matrix.split("\n")):
+            lines.append(f"{z:3d} : {values.strip()}")
+
+        lines = "\n    ".join(lines)
+
+        torch.set_printoptions(profile="default")
+
+        return f"""\
+PerSpeciesParameter({{
+      Z : {tuple(self.shape[1:])}
+    {lines}
+}}, requires_grad={self.requires_grad})"""
+
+
+class PerSpeciesEmbedding(torch.nn.Module):
+    """
+    A per-speices equivalent of `torch.nn.Embedding`.
+
+    Parameters
+    ----------
+    dim
+        The dimension of the embedding.
+
+    Examples
+    --------
+    >>> embedding = PerSpeciesEmbedding(10)
+    >>> embedding(graph.Z)  # graph.Z is a tensor of atomic numbers
+    <tensor of shape (graph.n_atoms, 10)>
+    """
+
+    def __init__(self, dim: int):
+        super().__init__()
+        self._embeddings = PerSpeciesParameter.of_dim(dim)
+
+    def forward(self, Z: Tensor) -> Tensor:
+        return self._embeddings[Z]
 
 
 class ConstrainedParameter(nn.Module, ABC):
+    """
+    Abstract base class for constrained parameters.
+
+    Implementations should override the `_constrained_value` property.
+
+    Parameters
+    ----------
+    x
+        The initial value of the parameter.
+    requires_grad
+        Whether the parameter should be trainable.
+    """
+
     def __init__(self, x: torch.Tensor, requires_grad: bool = True):
         super().__init__()
         self._parameter = nn.Parameter(x, requires_grad)
 
     @property
     @abstractmethod
-    def value(self) -> torch.Tensor:
+    def constrained_value(self) -> torch.Tensor:
         """generate the constrained value"""
 
     def _do_math(self, other, function, rev=False):
         if isinstance(other, ConstrainedParameter):
-            other_value = other.value
+            other_value = other.constrained_value
         else:
             other_value = other
 
         if rev:
-            return function(other_value, self.value)
+            return function(other_value, self.constrained_value)
         else:
-            return function(self.value, other_value)
+            return function(self.constrained_value, other_value)
 
     def __add__(self, other):
         return self._do_math(other, torch.add)
@@ -258,21 +340,32 @@ class ConstrainedParameter(nn.Module, ABC):
         return self._do_math(other, torch.pow, rev=True)
 
     def log(self):
-        return torch.log(self.value)
+        return torch.log(self.constrained_value)
 
     def sqrt(self):
-        return torch.sqrt(self.value)
+        return torch.sqrt(self.constrained_value)
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.value})"
+        return f"{self.__class__.__name__}({self.constrained_value})"
 
 
 class PositiveParameter(ConstrainedParameter):
+    """
+    A parameter constrained to be positive via an internal exponentiation.
+
+    Parameters
+    ----------
+    x
+        The initial value of the parameter. Must be positive.
+    requires_grad
+        Whether the parameter should be trainable.
+    """
+
     def __init__(self, x: torch.Tensor | float, requires_grad: bool = True):
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(x)
         super().__init__(torch.log(x), requires_grad)
 
     @property
-    def value(self):
+    def _constrained_value(self):
         return torch.exp(self._parameter)

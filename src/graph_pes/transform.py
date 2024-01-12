@@ -11,7 +11,7 @@ from torch import nn
 
 class Transform(nn.Module, ABC):
     r"""
-    Transforms data from one space to another.
+    Transforms data.
 
     .. math::
         \mathbf{x}^\prime = T(\mathbf{x})

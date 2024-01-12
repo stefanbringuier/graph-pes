@@ -7,6 +7,7 @@ Under-the-hood, this relies on Pytorch/Geometric for efficient tensor operations
 Batteries are included:
 - **easy data manipulations** : see docs relating to `AtomicGraph`, intuitive batching, easy conversion from ase etc.
 - **easy construction of PES models** : implement `predict_local_energies` , easy to save, load and share
+- **useful primitives** : PerSpeciesParameter
 - **easy training** : forces, energies, well conditioned losses etc.
 
 ## Installation

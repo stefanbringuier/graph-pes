@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Iterator, Sequence, TypeVar, overload
 
-import numpy as np
 import torch
 from ase.data import chemical_symbols
 from torch import Tensor
@@ -110,20 +109,11 @@ def as_possible_tensor(value: object) -> Tensor | None:
         The value to convert.
     """
 
-    if isinstance(value, Tensor):
-        return value
-
-    if isinstance(value, np.ndarray):
-        t = torch.from_numpy(value)
-        if t.dtype == torch.float64:
-            t = t.float()
-        return t
-
-    if isinstance(value, (int, float)):
-        return Tensor([value])
-
     try:
-        return Tensor(value)
+        tensor = torch.as_tensor(value)
+        if tensor.dtype == torch.float64:
+            tensor = tensor.float()
+        return tensor
 
     except Exception:
         return None

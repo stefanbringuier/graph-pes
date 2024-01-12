@@ -6,6 +6,7 @@
 
    Home <self>
    data
+   nn
   
 ########
 GraphPES
