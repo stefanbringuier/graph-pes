@@ -1,5 +1,10 @@
 import torch
-from graph_pes.nn import MLP, PerSpeciesEmbedding, PerSpeciesParameter
+from graph_pes.nn import (
+    MLP,
+    PerSpeciesEmbedding,
+    PerSpeciesParameter,
+    PositiveParameter,
+)
 from graph_pes.util import MAX_Z
 
 
@@ -22,6 +27,11 @@ def test_per_species_parameter():
     assert embedding(Z).shape == (5, 10)
     assert embedding.parameters().__next__().numel() == 50
 
+    # test default value init
+    assert PerSpeciesParameter.of_dim(1, generator=1.0).data.allclose(
+        torch.ones(MAX_Z)
+    )
+
 
 def test_mlp():
     mlp = MLP([10, 20, 1])
@@ -38,3 +48,16 @@ def test_mlp():
 
     # test nice repr
     assert "MLP(10 → 20 → 1" in str(mlp)
+
+
+def test_positive_parameter():
+    x = torch.tensor([1, 2, 3]).float()
+    positive_x = PositiveParameter(x)
+
+    a = torch.tensor([-1, 0, 1]).float()
+
+    assert torch.allclose(positive_x + a, x + a)
+    assert torch.allclose(positive_x - a, x - a)
+    assert torch.allclose(positive_x * a, x * a)
+    assert torch.allclose(positive_x / a, x / a)
+    assert torch.allclose(positive_x.log(), x.log())

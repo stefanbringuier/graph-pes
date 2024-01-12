@@ -178,7 +178,10 @@ class PerSpeciesParameter(torch.nn.Parameter):
         cls,
         dim: int,
         requires_grad: bool = True,
-        generator: Callable[[tuple[int, int]], Tensor] | None = None,
+        generator: Callable[[tuple[int, int]], Tensor]
+        | int
+        | float
+        | None = None,
     ):
         """
         Create a `PerSpeciesParameter` of the given dimension.
@@ -193,9 +196,12 @@ class PerSpeciesParameter(torch.nn.Parameter):
         requires_grad
             Whether the parameter should be trainable.
         """
-        if generator is None:
-            generator = torch.randn
-        data = generator((MAX_Z, dim))
+        if isinstance(generator, (int, float)):
+            data = torch.full((MAX_Z, dim), generator).float()
+        elif generator is None:
+            data = torch.randn(MAX_Z, dim)
+        else:
+            data = generator((MAX_Z, dim))
         return PerSpeciesParameter(data=data, requires_grad=requires_grad)
 
     def __getitem__(self, Z: int | Tensor) -> Tensor:
@@ -206,7 +212,6 @@ class PerSpeciesParameter(torch.nn.Parameter):
         ----------
         Z
             The atomic number/s of the parameter to get.
-
         """
 
         if isinstance(Z, int):
@@ -217,13 +222,7 @@ class PerSpeciesParameter(torch.nn.Parameter):
         return super().__getitem__(Z)
 
     def numel(self) -> int:
-        """
-        Get the number of trainable parameters.
-
-        Returns
-        -------
-        The number of trainable parameters.
-        """
+        """Get the number of trainable parameters."""
 
         return sum(self[Z].numel() for Z in self._accessed_Zs)
 
@@ -367,5 +366,5 @@ class PositiveParameter(ConstrainedParameter):
         super().__init__(torch.log(x), requires_grad)
 
     @property
-    def _constrained_value(self):
+    def constrained_value(self):
         return torch.exp(self._parameter)

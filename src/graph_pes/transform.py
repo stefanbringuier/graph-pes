@@ -6,52 +6,115 @@ from typing import Callable
 import torch
 from graph_pes.data import AtomicGraph, AtomicGraphBatch, sum_per_structure
 from graph_pes.nn import PerSpeciesParameter
-from torch import nn
+from torch import Tensor, nn
 
 
 class Transform(nn.Module, ABC):
     r"""
-    Transforms data.
+    :math:`T: \mathbb{R}^n \rightarrow_{\mathcal{G}} \mathbb{R}^n`
 
-    .. math::
-        \mathbf{x}^\prime = T(\mathbf{x})
+    Abstract base class for shape-preserving transformations of
+    data, conditioned on an :class:`AtomicGraph <graph_pes.data.AtomicGraph>`,
+    :math:`\mathcal{G}`.
+
+    Subclasses should implement :meth:`forward`, :meth:`inverse`,
+    and optionally :meth:`fit_to_source` and :meth:`fit_to_target`.
+
+    :meth:`_parameter` and :meth:`_per_species_parameter` are provided
+    as convenience methods for creating parameters that respect the
+    `trainable` flag.
+
+    Parameters
+    ----------
+    trainable
+        Whether the transform should be trainable.
     """
 
     def __init__(self, trainable: bool = True):
         super().__init__()
         self.trainable = trainable
 
-    def _parameter(self, x) -> nn.Parameter:
-        """get an optionally trainable parameter"""
+    @abstractmethod
+    def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
+        r"""
+        Implements the forward transformation, :math:`y = T(x, \mathcal{G})`.
+
+        Parameters
+        ----------
+        x
+            The input data.
+        graph
+            The graph to condition the transformation on.
+
+        Returns
+        -------
+        y: Tensor
+            The transformed data.
+        """
+
+    @abstractmethod
+    def inverse(self, x: Tensor, graph: AtomicGraph) -> Tensor:
+        r"""
+        Implements the inverse transformation,
+        :math:`x = T^{-1}(y, \mathcal{G})`.
+
+        Parameters
+        ----------
+        x
+            The input data.
+        graph
+            The graph to condition the inverse transformation on.
+
+        Returns
+        -------
+        x: Tensor
+            The inversely-transformed data.
+        """
+
+    def fit_to_source(self, data: Tensor, graphs: AtomicGraphBatch):
+        """
+        Fits the transform to data in the source space, :math:`x`.
+
+        Parameters
+        ----------
+        data
+            The data, :math:`x`, to fit to.
+        graphs
+            The graphs to condition the transformation on.
+        """
+
+    def fit_to_target(self, data: Tensor, graphs: AtomicGraphBatch):
+        """
+        Fits the transform to data in the target space, :math:`y`.
+
+        Parameters
+        ----------
+        data
+            The data, :math:`y`, to fit to.
+        graphs
+            The graphs to condition the inverse transformation on.
+        """
+
+    def _parameter(self, x: Tensor) -> nn.Parameter:
+        """Wrap `x` in an optionally trainable parameter."""
         return nn.Parameter(x, requires_grad=self.trainable)
 
     def _per_species_parameter(
         self,
-        zs: torch.Tensor | None = None,
-        values: torch.Tensor | None = None,
-        default: float = 0.0,
+        generator: Callable[[tuple[int, int]], Tensor] | float = 0.0,
     ) -> PerSpeciesParameter:
-        """get an optionally trainable per-species parameter"""
-        return PerSpeciesParameter(zs, values, default, self.trainable)
-
-    @abstractmethod
-    def forward(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
-        """implements the forward transformation"""
-
-    @abstractmethod
-    def inverse(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
-        """implements the inverse transformation"""
-
-    def fit_to_source(self, data: torch.Tensor, graphs: AtomicGraphBatch):
-        """fits the transform to data in the source space"""
-        pass
-
-    def fit_to_target(self, data: torch.Tensor, graphs: AtomicGraphBatch):
-        """fits the transform to data in the target space"""
-        pass
+        """Generate an (optionally trainable) per-species parameter."""
+        return PerSpeciesParameter.of_dim(
+            1, requires_grad=self.trainable, generator=generator
+        )
 
 
 class Identity(Transform):
+    """The identity transform, provided for convenience."""
+
+    def __init__(self):
+        super().__init__(trainable=False)
+
     def forward(self, x, graph):
         return x
 
@@ -60,11 +123,29 @@ class Identity(Transform):
 
 
 class Chain(Transform):
+    r"""
+    A chain of transformations, :math:`T_n \circ \dots \circ T_2 \circ T_1`.
+
+    The forward transformation is applied sequentially from left to right,
+    :math:`y = T_n \circ \dots \circ T_2 \circ T_1(x, \mathcal{G})`.
+
+    The inverse transformation is applied sequentially from right to left,
+    :math:`x = T_1^{-1} \circ T_2^{-1} \circ \dots
+    \circ T_n^{-1}(y, \mathcal{G})`.
+
+    Parameters
+    ----------
+    transforms
+        The transformations to chain together.
+    trainable
+        Whether the chain should be trainable.
+    """
+
     def __init__(self, transforms: list[Transform], trainable: bool = True):
         super().__init__(trainable)
         for t in transforms:
             t.trainable = trainable
-        self.transforms = nn.ModuleList(transforms)
+        self.transforms: list[Transform] = nn.ModuleList(transforms)  # type: ignore
 
     def forward(self, x, graph):
         for t in self.transforms:
@@ -73,19 +154,16 @@ class Chain(Transform):
 
     def inverse(self, x, graph):
         for t in reversed(self.transforms):
-            t: Transform
             x = t.inverse(x, graph)
         return x
 
-    def fit_to_source(self, data: torch.Tensor, graphs: AtomicGraphBatch):
-        for t in self.transforms:  # type: ignore
-            t: Transform
+    def fit_to_source(self, data: Tensor, graphs: AtomicGraphBatch):
+        for t in self.transforms:
             t.fit_to_source(data, graphs)
             data = t(data, graphs)
 
-    def fit_to_target(self, data: torch.Tensor, graphs: AtomicGraphBatch):
-        for t in reversed(self.transforms):  # type: ignore
-            t: Transform
+    def fit_to_target(self, data: Tensor, graphs: AtomicGraphBatch):
+        for t in reversed(self.transforms):
             t.fit_to_target(data, graphs)
             data = t.inverse(data, graphs)
 
@@ -94,52 +172,17 @@ def is_local_property(x, graph):
     return len(x.shape) and x.shape[0] == graph.n_atoms
 
 
-# class PerSpeciesTransform(Transform, ABC):
-#     r"""
-#     Uses a per-species parameter to transform a per-structure/per-atom property.
-#     """
-
-#     def __init__(
-#         self,
-#         trainable: bool = True,
-#         values: PerSpeciesParameter | None = None,
-#         default: float = 0.0,
-#     ):
-#         super().__init__(trainable=trainable)
-
-#         if values is not None:
-#             values.values.requires_grad = trainable
-#         else:
-#             values = self._per_species_parameter(default=default)
-#         self.values = values
-
-#     @staticmethod
-#     def is_local_property(x, graph):
-#         return len(x.shape) and x.shape[0] == graph.n_atoms
-
-#     def forward(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
-#         values = self.values[graph.Z]
-#         if self.is_local_property(x, graph):
-#             return self.per_species_op(x, values)
-#         else:
-#             return self.per_structure_op(x, values, graph)
-
-#     @abstractmethod
-#     def per_species_op(
-#         self, x: torch.Tensor, values: torch.Tensor
-#     ) -> torch.Tensor:
-#         """implements the per-species forward transformation"""
-
-#     @abstractmethod
-#     def per_structure_op(
-#         self, x: torch.Tensor, values: torch.Tensor, graph: AtomicGraph
-#     ) -> torch.Tensor:
-#         """implements the per-structure forward transformation"""
-
-
 class PerSpeciesOffset(Transform):
     r"""
-    adds a per-species offset to the input
+    Adds a per-species offset to a tensor of per-atom, or per-structure
+    properties.
+
+    Parameters
+    ----------
+    trainable
+        Whether the offset should be trainable.
+    offsets
+        The offsets to use. If `None`, the offsets are initialized to zero.
     """
 
     def __init__(
@@ -147,25 +190,26 @@ class PerSpeciesOffset(Transform):
     ):
         super().__init__(trainable=trainable)
         if offsets is not None:
-            offsets.values.requires_grad = trainable
+            offsets.requires_grad = trainable
         else:
-            offsets = self._per_species_parameter(default=0.0)
+            offsets = self._per_species_parameter(0.0)
+
         self.offsets = offsets
         self.op = torch.add
 
     def _perform_op(
-        self, x: torch.Tensor, graph: AtomicGraph, op: Callable
-    ) -> torch.Tensor:
+        self, x: Tensor, graph: AtomicGraph, op: Callable
+    ) -> Tensor:
         offsets = self.offsets[graph.Z]
         # if we have a total property, we need to sum offsets over the structure
         if not is_local_property(x, graph):
             offsets = sum_per_structure(offsets, graph)
         return op(x, offsets)
 
-    def forward(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+    def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return self._perform_op(x, graph, self.op)
 
-    def inverse(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+    def inverse(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return self._perform_op(x, graph, self.inverse_op)
 
     @property
@@ -178,7 +222,7 @@ class PerSpeciesOffset(Transform):
             raise NotImplementedError
 
     def guess_offsets(
-        self, x: torch.Tensor, graphs: AtomicGraphBatch
+        self, x: Tensor, graphs: AtomicGraphBatch
     ) -> PerSpeciesParameter:
         """guesses the offsets from the data"""
         if is_local_property(x, graphs):
@@ -199,11 +243,11 @@ class PerSpeciesOffset(Transform):
 
         return self._per_species_parameter(zs, offsets)
 
-    def fit_to_source(self, data: torch.Tensor, graphs: AtomicGraphBatch):
+    def fit_to_source(self, data: Tensor, graphs: AtomicGraphBatch):
         self.offsets = self.guess_offsets(data, graphs)
         self.op = torch.sub
 
-    def fit_to_target(self, data: torch.Tensor, graphs: AtomicGraphBatch):
+    def fit_to_target(self, data: Tensor, graphs: AtomicGraphBatch):
         self.offsets = self.guess_offsets(data, graphs)
         self.op = torch.add
 
@@ -213,9 +257,7 @@ class PerSpeciesOffset(Transform):
         )
 
 
-def sum_scale_per_structure(
-    scale: torch.Tensor, graph: AtomicGraph
-) -> torch.Tensor:
+def sum_scale_per_structure(scale: Tensor, graph: AtomicGraph) -> Tensor:
     sum = sum_per_structure(scale**2, graph)
     return torch.sqrt(sum)
 
@@ -237,8 +279,8 @@ class PerSpeciesScale(Transform):
         self.op = torch.mul
 
     def _perform_op(
-        self, x: torch.Tensor, graph: AtomicGraph, op: Callable
-    ) -> torch.Tensor:
+        self, x: Tensor, graph: AtomicGraph, op: Callable
+    ) -> Tensor:
         scales = self.scales[graph.Z]
 
         # if we have a total property, we need to sum scales over the structure
@@ -251,10 +293,10 @@ class PerSpeciesScale(Transform):
             scales = scales.view(-1, 1)
         return op(x, scales)
 
-    def forward(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+    def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return self._perform_op(x, graph, self.op)
 
-    def inverse(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+    def inverse(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return self._perform_op(x, graph, self.inverse_op)
 
     @property
@@ -266,7 +308,7 @@ class PerSpeciesScale(Transform):
         else:
             raise NotImplementedError
 
-    def guess_scales(self, x: torch.Tensor, graphs: AtomicGraphBatch):
+    def guess_scales(self, x: Tensor, graphs: AtomicGraphBatch):
         """guesses the scales from the data"""
         if is_local_property(x, graphs):
             # fit to mean per species
@@ -285,11 +327,11 @@ class PerSpeciesScale(Transform):
 
         return self._per_species_parameter(zs, scales, default=1.0)
 
-    def fit_to_source(self, data: torch.Tensor, graphs: AtomicGraphBatch):
+    def fit_to_source(self, data: Tensor, graphs: AtomicGraphBatch):
         self.scales = self.guess_scales(data, graphs)
         self.op = torch.div
 
-    def fit_to_target(self, data: torch.Tensor, graphs: AtomicGraphBatch):
+    def fit_to_target(self, data: Tensor, graphs: AtomicGraphBatch):
         self.scales = self.guess_scales(data, graphs)
         self.op = torch.mul
 
@@ -302,18 +344,18 @@ class PerSpeciesScale(Transform):
 class Scale(Transform):
     def __init__(self, trainable: bool = True, scale: float = 1.0):
         super().__init__(trainable=trainable)
-        self.scale = self._parameter(torch.tensor(scale))
+        self.scale = self._parameter(Tensor(scale))
 
-    def forward(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+    def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return x * self.scale
 
-    def inverse(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+    def inverse(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return x / self.scale
 
-    def fit_to_source(self, data: torch.Tensor, graphs: AtomicGraphBatch):
+    def fit_to_source(self, data: Tensor, graphs: AtomicGraphBatch):
         self.scale = self._parameter(1 / data.std())
 
-    def fit_to_target(self, data: torch.Tensor, graphs: AtomicGraphBatch):
+    def fit_to_target(self, data: Tensor, graphs: AtomicGraphBatch):
         self.scale = self._parameter(data.std())
 
 
@@ -322,8 +364,8 @@ class FixedScale(Transform):
         super().__init__(trainable=False)
         self.scale = scale
 
-    def forward(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+    def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return x * self.scale
 
-    def inverse(self, x: torch.Tensor, graph: AtomicGraph) -> torch.Tensor:
+    def inverse(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return x / self.scale

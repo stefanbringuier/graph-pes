@@ -12,6 +12,7 @@ from graph_pes.transform import (
     Identity,
     PerSpeciesOffset,
     PerSpeciesScale,
+    Transform,
 )
 from torch import nn
 
@@ -74,7 +75,7 @@ class GraphPESModel(nn.Module, ABC):
 
     def __init__(self):
         super().__init__()
-        self._energy_transforms = nn.ModuleDict(
+        self._energy_transforms: dict[str, Transform] = nn.ModuleDict(  # type: ignore
             {
                 "local": Chain(
                     [PerSpeciesScale(), PerSpeciesOffset()], trainable=True
@@ -176,8 +177,8 @@ def get_predictions(pes: GraphPESModel, structure: AtomicGraph) -> Prediction:
     # an infinitesimal change in the cell parameters
     actual_cell = structure.cell
     change_to_cell = torch.zeros_like(actual_cell, requires_grad=True)
-    # symmetric_change = 0.5 * (change_to_cell + change_to_cell.transpose(-1, -2))
-    structure.cell = actual_cell + change_to_cell
+    symmetric_change = 0.5 * (change_to_cell + change_to_cell.transpose(-1, -2))
+    structure.cell = actual_cell + symmetric_change
     with require_grad(structure._positions):
         total_energy = pes(structure)
         (dE_dR, dCell_dR) = get_gradient(
@@ -208,10 +209,6 @@ def energy_and_forces(pes: GraphPESModel, structure: AtomicGraph):
     EnergyAndForces
         The energy of the structure and forces on each atom.
     """
-
-    # TODO handle the case where isolated atoms are present
-    # such that the gradient of energy wrt their positions
-    # is zero.
 
     # use the autograd machinery to auto-magically
     # calculate forces for (almost) free
