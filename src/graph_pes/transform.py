@@ -110,7 +110,7 @@ class Transform(nn.Module, ABC):
 
 
 class Identity(Transform):
-    """The identity transform, provided for convenience."""
+    """The identity transform, provided for convenience: :math:`T(x) = x`."""
 
     def __init__(self):
         super().__init__(trainable=False)
@@ -174,8 +174,13 @@ def is_local_property(x, graph):
 
 class PerSpeciesOffset(Transform):
     r"""
-    Adds a per-species offset to a tensor of per-atom, or per-structure
-    properties.
+    Maintains an (optionally trainable) per-species offset, :math:`o`.
+
+    This transforms per-atom properties, :math:`x`, of a structure,
+    :math:`\mathcal{G}`, according to :math:`y_i = x_i + o_{Z_i}`.
+
+    This transforms per-structure properties, :math:`x`, of a structure,
+    :math:`\mathcal{G}`, according to :math:`y = x + \sum_{i=1}^{N} o_{Z_i}`.
 
     Parameters
     ----------
@@ -244,6 +249,17 @@ class PerSpeciesOffset(Transform):
         return self._per_species_parameter(zs, offsets)
 
     def fit_to_source(self, data: Tensor, graphs: AtomicGraphBatch):
+        """
+        Calculates the offsets, :math:`o`, such that the mean of the
+        transformed data is zero.
+
+        Parameters
+        ----------
+        data
+            The data to fit to.
+        graphs
+            The graphs to condition the transformation on.
+        """
         self.offsets = self.guess_offsets(data, graphs)
         self.op = torch.sub
 

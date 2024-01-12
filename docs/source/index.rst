@@ -5,7 +5,10 @@
    :caption: Contents:
 
    Home <self>
+   models
    data
+   training
+   losses
    nn
    transforms
   

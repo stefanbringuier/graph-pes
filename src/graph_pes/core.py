@@ -14,24 +14,29 @@ from graph_pes.transform import (
     PerSpeciesScale,
     Transform,
 )
-from torch import nn
+from jaxtyping import Float
+from torch import Tensor, nn
 
 
 class GraphPESModel(nn.Module, ABC):
     r"""
-    An abstract base class for all graph-based models of the PES that
-    make predictions of the total energy of a structure as a sum
+    An abstract base class for all graph-based, energy-conserving models of the
+    PES that make predictions of the total energy of a structure as a sum
     of local contributions:
 
     .. math::
-        E = f(\mathcal{G}) = \sum_i \varepsilon(\mathcal{N}_i)
+        E(\mathcal{G}) = \sum_i \varepsilon_i
 
     To create such a model, implement :meth:`predict_local_energies`,
-    which takes a :class:`AtomicGraph` and returns a per-atom prediction
-    of the local energy. Under the hood, :class:`GraphPESModel` uses
-    these predictions to compute the total energy of the structure
-    (complete with a learnable per-species shift and scale) in the
-    forward pass.
+    which takes an :class:`AtomicGraph`, or an :class:`AtomicGraphBatch`,
+    and returns a per-atom prediction of the local energy. For a simple example,
+    see :class:`LennardJones <graph_pes.models.pairwise.LennardJones>`.
+
+    Under the hood, :class:`GraphPESModel` contains an
+    :class:`EnergySummation` module, which is responsible for
+    summing over local energies to obtain the total energy/ies,
+    with optional transformations of the local and total energies.
+    By default, this learns a per-species, local energy offset and scale.
 
     .. note::
         All :class:`GraphPESModel` instances are also instances of
@@ -40,15 +45,16 @@ class GraphPESModel(nn.Module, ABC):
     """
 
     @abstractmethod
-    def predict_local_energies(self, graph: AtomicGraph) -> torch.Tensor:
+    def predict_local_energies(
+        self, graph: AtomicGraph | AtomicGraphBatch
+    ) -> Float[Tensor, "graph.n_atoms"]:
         """
-        Predict the (standardized) local energy for each atom in the structure,
-        as represented by `graph`.
+        Predict the (standardized) local energy for each atom in the graph.
 
         Parameters
         ----------
-        graph : AtomicGraph
-            The graph representation of the structure.
+        graph
+            The graph representation of the structure/s.
         """
 
     def forward(self, graph: AtomicGraph | AtomicGraphBatch):
@@ -63,59 +69,100 @@ class GraphPESModel(nn.Module, ABC):
 
         # local predictions
         local_energies = self.predict_local_energies(graph).squeeze()
-        local_transform = self._energy_transforms.get("local", Identity())
-        local_energies = local_transform(local_energies, graph)
 
-        # sum over the atoms in each structure
-        total_E = sum_per_structure(local_energies, graph)
-        total_transform = self._energy_transforms.get("total", Identity())
-        total_E = total_transform(total_E, graph)
-
-        return total_E
+        # sum over atoms to get total energy
+        return self._energy_summation(local_energies, graph)
 
     def __init__(self):
         super().__init__()
-        self._energy_transforms: dict[str, Transform] = nn.ModuleDict(  # type: ignore
-            {
-                "local": Chain(
-                    [PerSpeciesScale(), PerSpeciesOffset()], trainable=True
-                )
-            }
-        )
+        self._energy_summation = EnergySummation()
 
-    def __repr__(self):
-        # modified from torch.nn.Module.__repr__
-        # changes:
-        # - don't print any modules that start with _
+    # def __repr__(self):
+    #     # modified from torch.nn.Module.__repr__
+    #     # changes:
+    #     # - don't print any modules that start with _
 
-        # We treat the extra repr like the sub-module, one item per line
-        extra_lines = []
-        extra_repr = self.extra_repr()
-        # empty string will be split into list ['']
-        if extra_repr:
-            extra_lines = extra_repr.split("\n")
-        child_lines = []
-        for key, module in self._modules.items():
-            if key.startswith("_"):
-                continue
-            mod_str = repr(module)
-            mod_str = nn.modules.module._addindent(mod_str, 2)
-            child_lines.append("(" + key + "): " + mod_str)
-        lines = extra_lines + child_lines
+    #     # We treat the extra repr like the sub-module, one item per line
+    #     extra_lines = []
+    #     extra_repr = self.extra_repr()
+    #     # empty string will be split into list ['']
+    #     if extra_repr:
+    #         extra_lines = extra_repr.split("\n")
+    #     child_lines = []
+    #     for key, module in self._modules.items():
+    #         if key.startswith("_"):
+    #             continue
+    #         mod_str = repr(module)
+    #         mod_str = nn.modules.module._addindent(mod_str, 2)
+    #         child_lines.append("(" + key + "): " + mod_str)
+    #     lines = extra_lines + child_lines
 
-        main_str = self._get_name() + "("
-        if lines:
-            # simple one-liner info, which most builtin Modules will use
-            if len(extra_lines) == 1 and not child_lines:
-                main_str += extra_lines[0]
-            else:
-                main_str += "\n  " + "\n  ".join(lines) + "\n"
+    #     main_str = self._get_name() + "("
+    #     if lines:
+    #         # simple one-liner info, which most builtin Modules will use
+    #         if len(extra_lines) == 1 and not child_lines:
+    #             main_str += extra_lines[0]
+    #         else:
+    #             main_str += "\n  " + "\n  ".join(lines) + "\n"
 
-        main_str += ")"
-        return main_str
+    #     main_str += ")"
+    #     return main_str
 
-    def __add__(self, other: GraphPESModel) -> GraphPESModel:
+    def __add__(self, other: GraphPESModel) -> Ensemble:
+        """
+        A convenient way to create a summation of two models.
+
+        Examples
+        --------
+        >>> TwoBody() + ThreeBody()
+        Ensemble([TwoBody(), ThreeBody()], aggregation=sum)
+        """
+
         return Ensemble([self, other], mean=False)
+
+
+class EnergySummation(nn.Module):
+    def __init__(
+        self,
+        local_transform: Transform | None = None,
+        total_transform: Transform | None = None,
+    ):
+        super().__init__()
+
+        # if both None, default to a per-species, local energy offset
+        if local_transform is None and total_transform is None:
+            local_transform = Chain(
+                [PerSpeciesScale(), PerSpeciesOffset()], trainable=True
+            )
+        self.local_transform = local_transform or Identity()
+        self.total_transform = total_transform or Identity()
+
+    def forward(self, local_energies: torch.Tensor, graph: AtomicGraphBatch):
+        local_energies = self.local_transform(local_energies, graph)
+        total_E = sum_per_structure(local_energies, graph)
+        total_E = self.total_transform(total_E, graph)
+        return total_E
+
+    def fit_to_graphs(
+        self,
+        graphs: AtomicGraphBatch | list[AtomicGraph],
+        energy_key: str = "energy",
+    ):
+        if not isinstance(graphs, AtomicGraphBatch):
+            graphs = AtomicGraphBatch.from_graphs(graphs)
+
+        if energy_key in graphs.structure_labels:
+            energies = graphs.structure_labels[energy_key]
+        elif energy_key in graphs.atom_labels:
+            energies = graphs.atom_labels[energy_key]
+        else:
+            raise KeyError(
+                f"Could not find {energy_key} in either "
+                f"structure_labels or atom_labels"
+            )
+
+        for transform in [self.local_transform, self.total_transform]:
+            transform.fit_to_target(energies, graphs)
 
 
 class Ensemble(GraphPESModel):
@@ -127,6 +174,10 @@ class Ensemble(GraphPESModel):
     def predict_local_energies(self, graph: AtomicGraph | AtomicGraphBatch):
         s = sum(m.predict_local_energies(graph).squeeze() for m in self.models)
         return s / len(self.models) if self.mean else s
+
+    def __repr__(self):
+        aggregation = "mean" if self.mean else "sum"
+        return f"Ensemble({self.models}, aggregation={aggregation})"
 
 
 @contextmanager

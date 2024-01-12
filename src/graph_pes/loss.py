@@ -1,47 +1,64 @@
 from __future__ import annotations
 
+from typing import Callable
+
 import torch
 from graph_pes.data import AtomicGraphBatch
-from graph_pes.transform import Chain, Identity, Transform
-from torch import nn
+from graph_pes.data.atomic_graph import AtomicGraph
+from graph_pes.transform import Identity, Transform
+from torch import Tensor, nn
 
 
 class Loss(nn.Module):
     r"""
-    Ultimately, a loss function compares a prediction to a ground truth label,
-    and returns a scalar quantifying how good the prediction is.
+    Measure the discrepancy between predictions and labels.
 
-    A :class:`graph_pes.Loss` optionally applies a series of pre-transforms
-    to the predictions and labels before applying a metric:
+    Often, it is convenient to apply some well known loss function,
+    e.g. `MSELoss`,  to a transformed version of the predictions and labels,
+    e.g. normalisation, such that the loss value takes on "nice" values,
+    and that the resulting gradients and parameter updates are well-behaved.
+
+    :class:`Loss`'s in `graph-pes` are thus lightweight wrappers around:
+    * an (optional) pre-transform, :math:`T`
+    * a loss metric, :math:`M`.
+
+    Calculating the loss value, :math:`\mathcal{L}`, amounts to the following:
 
     .. math::
-        \begin{align*}
-        P^\prime &= \text{transform}(P) \\
-        L &= \text{metric}(P^\prime, P_{\text{true}})
-        \end{align*}
+        \mathcal{L} = M\left( T(\hat{P}), T(P) \right)
+
+    where :math:`\hat{P}` are the predictions, and :math:`P` are the labels.
+
+    You can create a weighted, multi-component loss by using the `+` and `*`
+    operators on :class:`Loss` instances. For example:
+
+    .. code-block:: python
+
+            Loss("energy") * 10 + Loss("forces")
+
+    will create a loss function that is the sum of a 10x weighted energy loss
+    and a force loss.
+
+    Parameters
+    ----------
+    property_key
+        The name of the property to apply transformations and loss metrics to.
+    metric
+        The loss metric to use.
+    transform
+        The transform to apply to the predictions and labels.
     """
 
     def __init__(
         self,
         property_key: str,
-        weight: float = 1.0,
-        metric: nn.Module | None = None,
+        metric: Callable[[Tensor, Tensor], Tensor] | None = None,
         transform: Transform | None = None,
-        transforms: list[Transform] | None = None,
     ):
         super().__init__()
         self.property_key = property_key
-        self.weight = weight
-        self.metric = nn.MSELoss() if metric is None else metric
-
-        if transform is not None and transforms is not None:
-            raise ValueError("Cannot pass both transform and transforms")
-        if transform is not None:
-            self.transform = transform
-        elif transforms is not None:
-            self.transform = Chain(transforms)
-        else:
-            self.transform = Identity()
+        self.metric = MAE() if metric is None else metric
+        self.transform = transform or Identity()
         self.transform.trainable = False
 
     def forward(
@@ -49,8 +66,11 @@ class Loss(nn.Module):
         predictions: dict[str, torch.Tensor],
         graphs: AtomicGraphBatch,
     ) -> torch.Tensor:
+        """
+        Computes the loss value.
+        """
         P_hat = predictions[self.property_key]
-        P_true = graphs.labels[self.property_key]
+        P_true = self._get_P(graphs)
 
         # apply transforms
         P_hat_prime = self.transform(P_hat, graphs)
@@ -65,13 +85,13 @@ class Loss(nn.Module):
         graphs: AtomicGraphBatch,
     ) -> torch.Tensor:
         P_hat = predictions[self.property_key]
-        P_true = graphs.labels[self.property_key]
+        P_true = self._get_P(graphs)
 
         # compute loss without transforms
         return self.metric(P_hat, P_true)
 
     def fit_transform(self, graphs: AtomicGraphBatch):
-        self.transform.fit_to_source(graphs.labels[self.property_key], graphs)
+        self.transform.fit_to_source(self._get_P(graphs), graphs)
 
     @property
     def name(self) -> str:
@@ -87,13 +107,98 @@ class Loss(nn.Module):
             .replace("loss", "")
         )
 
+    def _get_P(self, graphs: AtomicGraph):
+        if self.property_key in graphs.atom_labels:
+            return graphs.atom_labels[self.property_key]
+        elif self.property_key in graphs.structure_labels:
+            return graphs.structure_labels[self.property_key]
+        else:
+            raise KeyError(
+                f"Could not find {self.property_key} in either "
+                f"structure_labels or atom_labels"
+            )
+
+    def __mul__(self, other: float) -> WeightedLoss:
+        return WeightedLoss([self], [other])
+
+    def __rmul__(self, other: float) -> WeightedLoss:
+        return WeightedLoss([self], [other])
+
+    def __add__(self, other: Loss | WeightedLoss) -> WeightedLoss:
+        if isinstance(other, Loss):
+            return WeightedLoss([self, other], [1, 1])
+        elif isinstance(other, WeightedLoss):
+            return WeightedLoss([self] + other.losses, [1] + other.weights)
+        else:
+            raise TypeError(f"Cannot add Loss and {type(other)}")
+
+    def __radd__(self, other: Loss | WeightedLoss) -> WeightedLoss:
+        return self.__add__(other)
+
+
+class WeightedLoss(torch.nn.Module):
+    r"""
+    A lightweight wrapper around a collection of weighted losses.
+
+    Creation can be done in two ways:
+    1. Directly, by passing a list of losses and weights.
+    2. Via `+` and `*` operators
+
+    Hence:
+
+    .. code-block:: python
+
+        WeightedLoss([Loss("energy"), Loss("forces")], [10, 1])
+        # is equivalent to
+        10 * Loss("energy") + 1 * Loss("forces")
+
+    Parameters
+    ----------
+    losses
+        The collection of losses to aggregate.
+    weights
+        The weights to apply to each loss.
+    """
+
+    def __init__(
+        self,
+        losses: list[Loss],
+        weights: list[float] | None = None,
+    ):
+        super().__init__()
+        self.losses: list[Loss] = nn.ModuleList(losses)  # type: ignore
+        self.weights = weights or [1.0] * len(losses)
+
+    def __add__(self, other: WeightedLoss) -> WeightedLoss:
+        return WeightedLoss(
+            self.losses + other.losses, self.weights + other.weights
+        )
+
 
 class RMSE(torch.nn.MSELoss):
-    def __init__(self, *args, eps: float = 1e-8, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.register_buffer("eps", torch.scalar_tensor(eps))
+    r"""
+    Root mean squared error metric:
+
+    .. math::
+        \sqrt{ \frac{1}{N} \sum_i^N \left( \hat{P}_i - P_i \right)^2 }
+    """
+
+    def __init__(self):
+        super().__init__()
 
     def forward(
         self, input: torch.Tensor, target: torch.Tensor
     ) -> torch.Tensor:
-        return (super().forward(input, target) + self.eps).sqrt()
+        return (super().forward(input, target)).sqrt()
+
+
+class MAE(torch.nn.L1Loss):
+    r"""
+    Mean absolute error metric:
+
+    .. math::
+        \frac{1}{N} \sum_i^N \left| \hat{P}_i - P_i \right|
+    """
+
+    def __init__(self):
+        super().__init__()

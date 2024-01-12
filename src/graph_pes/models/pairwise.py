@@ -7,7 +7,8 @@ import torch
 from graph_pes.core import GraphPESModel
 from graph_pes.data import AtomicGraph
 from graph_pes.nn import MLP, PositiveParameter
-from torch import nn
+from jaxtyping import Float
+from torch import Tensor, nn
 from torch_geometric.utils import scatter
 
 from .distances import Bessel, DistanceExpansion, Envelope, PolynomialEnvelope
@@ -19,19 +20,47 @@ class PairPotential(GraphPESModel, ABC):
     a sum over pairwise interactions:
 
     .. math::
-        E = \sum_{i < j} V(r_{ij}, Z_i, Z_j)
+        E = \sum_{i, j} V(r_{ij}, Z_i, Z_j)
 
     where :math:`r_{ij}` is the distance between atoms :math:`i` and :math:`j`,
     and :math:`Z_i` and :math:`Z_j` are their atomic numbers.
+
+    This can be recast as a sum over local energy contributions,
+    :math:`E = \sum_i \varepsilon_i`, according to:
+
+    .. math::
+        \varepsilon_i = \frac{1}{2} \sum_j V(r_{ij}, Z_i, Z_j)
     """
 
     @abstractmethod
     def interaction(
-        self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor
-    ) -> torch.Tensor:
-        """compute the pairwise interaction between atoms i and j"""
+        self,
+        r: Float[Tensor, "E"],
+        Z_i: Float[Tensor, "E"],
+        Z_j: Float[Tensor, "E"],
+    ) -> Float[Tensor, "E"]:
+        """
+        Compute the interactions between pairs of atoms, given their
+        distances and atomic numbers.
 
-    def predict_local_energies(self, graph: AtomicGraph) -> torch.Tensor:
+        Parameters
+        ----------
+        r
+            The pair-wise distances between the atoms.
+        Z_i
+            The atomic numbers of the central atoms.
+        Z_j
+            The atomic numbers of the neighbours.
+
+        Returns
+        -------
+        V: Float[Tensor, "E"]
+            The pair-wise interactions.
+        """
+
+    def predict_local_energies(
+        self, graph: AtomicGraph
+    ) -> Float[Tensor, "graph.n_edges"]:
         central_atoms, neighbours = graph.neighbour_index
         distances = graph.neighbour_distances
 
@@ -49,23 +78,20 @@ class LennardJones(PairPotential):
     A pair potential of the form:
 
     .. math::
-        \varepsilon_{ij} = 4 \varepsilon \left[ \left( \frac{\sigma}{r_{ij}}
-        \right)^{12} - \left( \frac{\sigma}{r_{ij}} \right)^{6} \right]
+        V(r_{ij}, Z_i, Z_j) = V(r_{ij}) = 4 \varepsilon \left[ \left(
+        \frac{\sigma}{r_{ij}} \right)^{12} - \left( \frac{\sigma}{r_{ij}}
+        \right)^{6} \right]
 
     where :math:`r_{ij}` is the distance between atoms :math:`i` and :math:`j`.
+    Internally, :math:`\varepsilon` and :math:`\sigma` are stored as
+    :class:`PositiveParameter` instances, which ensures that they are
+    strictly positive.
 
     Parameters
     ----------
     epsilon : Optional[float]
         The depth of the potential.
     sigma : Optional[float]
-        The distance at which the potential is zero.
-
-    Attributes
-    ----------
-    epsilon : torch.nn.Parameter
-        The depth of the potential.
-    sigma : torch.nn.Parameter
         The distance at which the potential is zero.
     """
 
@@ -84,6 +110,10 @@ class LennardJones(PairPotential):
         ----------
         r : torch.Tensor
             The pair-wise distances between the atoms.
+        Z_i : torch.Tensor
+            The atomic numbers of the central atoms. (unused)
+        Z_j : torch.Tensor
+            The atomic numbers of the neighbours. (unused)
         """
         x = self.sigma / r
         return 4 * self.epsilon * (x**12 - x**6)

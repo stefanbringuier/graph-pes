@@ -319,7 +319,7 @@ def extract_tensors(
 
 
 def convert_to_atomic_graphs(
-    structures: Iterable[ase.Atoms],
+    structures: Iterable[ase.Atoms] | ase.Atoms,
     cutoff: float,
     labels: list[str] | None = None,
 ) -> list[AtomicGraph]:
@@ -338,4 +338,6 @@ def convert_to_atomic_graphs(
         or `atoms.arrays` dict. If not provided, all possible labels
         will be included.
     """
+    if isinstance(structures, ase.Atoms):
+        structures = [structures]
     return [convert_to_atomic_graph(s, cutoff, labels) for s in structures]

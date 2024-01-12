@@ -180,6 +180,7 @@ class LearnThePES(pl.LightningModule):
 
 
 def default_loss_fns() -> list[Loss]:
+    # TODO should defailt to whatever is in the inputs
     return [
         Loss(
             "energy",
