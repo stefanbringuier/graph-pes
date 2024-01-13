@@ -8,8 +8,8 @@ from graph_pes.core import GraphPESModel, energy_and_forces
 from graph_pes.data import AtomicGraph, AtomicGraphBatch
 from graph_pes.transform import (
     Chain,
-    PerSpeciesOffset,
     PerSpeciesScale,
+    PerSpeciesShift,
     Transform,
 )
 
@@ -25,7 +25,7 @@ def parity_plots(
     **kwargs,
 ) -> tuple[plt.Axes, plt.Axes]:
     if E_transform is None:
-        E_transform = Chain([PerSpeciesScale(), PerSpeciesOffset()])
+        E_transform = Chain([PerSpeciesScale(), PerSpeciesShift()])
     if F_transform is None:
         F_transform = PerSpeciesScale()
 

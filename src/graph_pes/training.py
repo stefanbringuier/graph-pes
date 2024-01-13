@@ -8,7 +8,7 @@ from graph_pes.core import GraphPESModel, energy_and_forces, get_predictions
 from graph_pes.data import AtomicGraph
 from graph_pes.data.batching import AtomicDataLoader, AtomicGraphBatch
 from graph_pes.loss import RMSE, Loss
-from graph_pes.transform import PerSpeciesOffset, PerSpeciesScale, Scale
+from graph_pes.transform import PerSpeciesScale, PerSpeciesShift, Scale
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch import optim
@@ -185,7 +185,7 @@ def default_loss_fns() -> list[Loss]:
         Loss(
             "energy",
             metric=RMSE(),
-            transforms=[PerSpeciesOffset(), PerSpeciesScale()],
+            transforms=[PerSpeciesShift(), PerSpeciesScale()],
         ),
         Loss(
             "forces",

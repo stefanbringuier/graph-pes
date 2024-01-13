@@ -13,7 +13,7 @@ Training a :class:`GraphPESModel <graph_pes.core.GraphPESModel>` involves three 
 
 1. Define and initialize the model (see :ref:`models`)
 2. Loading the training data (see :ref:`loading atomic graphs`)
-3. Defining the components of the loss function (see :ref:`loss functions`)
+3. Defining the loss function (see :ref:`loss functions`)
 
 Within the graph-pes framework, this can be as simple as:
 

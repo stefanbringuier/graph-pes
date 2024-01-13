@@ -3,8 +3,8 @@ Losses
 ######
 
 .. autoclass:: graph_pes.loss.Loss
-    :members:
-
+.. autoclass:: graph_pes.loss.WeightedLoss()
+    
 Metrics
 =======
 

@@ -191,6 +191,35 @@ class AtomicGraph:
             structure_labels=process_dict(self.structure_labels),
         )
 
+    def get_labels(self, key: str) -> Tensor:
+        """
+        Get the labels for the specified key.
+
+        Parameters
+        ----------
+        key
+            The name of the label to retrieve.
+        """
+        for labels in (
+            self.atom_labels,
+            self.edge_labels,
+            self.structure_labels,
+        ):
+            if key in labels:
+                return labels[key]
+        raise KeyError(f"Could not find label '{key}'")
+
+    def is_local_property(self, x: Tensor) -> bool:
+        """
+        Check whether a tensor is a local property, based on its shape.
+
+        Parameters
+        ----------
+        x
+            The tensor to check.
+        """
+        return len(x.shape) > 0 and (x.shape[0] == self.n_atoms)
+
     def __repr__(self) -> str:
         device = self.Z.device
         _dict = dict(
@@ -226,11 +255,11 @@ def convert_to_atomic_graph(
     atom_info, structure_info = extract_information(structure, labels)
     i, j, offsets = neighbor_list("ijS", structure, cutoff)
     return AtomicGraph(
-        Z=torch.ShortTensor(structure.numbers),
+        Z=torch.LongTensor(structure.numbers),
         positions=torch.FloatTensor(structure.positions),
         neighbour_index=torch.LongTensor(np.vstack([i, j])),
         cell=torch.FloatTensor(structure.cell.array),
-        neighbour_offsets=torch.ShortTensor(offsets),
+        neighbour_offsets=torch.LongTensor(offsets),
         atom_labels=atom_info,
         structure_labels=structure_info,
     )

@@ -70,6 +70,8 @@ def shape_repr(dict_of_tensors: dict[str, Tensor], sep: str = ", ") -> str:
     """
 
     def _get_shape(tensor: Tensor) -> str:
+        if len(tensor.shape) == 0:
+            return f"{tensor.item():.2f}"
         return "[" + ",".join(str(i) for i in tensor.shape) + "]"
 
     return sep.join(f"{k}={_get_shape(v)}" for k, v in dict_of_tensors.items())

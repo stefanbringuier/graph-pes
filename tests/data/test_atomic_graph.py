@@ -106,3 +106,19 @@ def test_isolated_api():
     )
     assert graph.n_atoms == 2, "unexpected graph created"
     assert not graph.has_cell, "graph should not have a cell"
+
+
+def test_get_labels():
+    atoms = Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)], pbc=False)
+    atoms.info["energy"] = -1.0
+    atoms.arrays["forces"] = np.zeros((2, 3))
+    graph = convert_to_atomic_graph(atoms, cutoff=1.0)
+
+    forces = graph.get_labels("forces")
+    assert forces.shape == (2, 3)
+
+    energy = graph.get_labels("energy")
+    assert energy.item() == -1.0
+
+    with pytest.raises(KeyError):
+        graph.get_labels("missing")

@@ -10,8 +10,8 @@ from graph_pes.data.batching import AtomicGraphBatch, sum_per_structure
 from graph_pes.transform import (
     Chain,
     Identity,
-    PerSpeciesOffset,
-    PerSpeciesScale,
+    PerAtomScale,
+    PerAtomShift,
     Transform,
 )
 from jaxtyping import Float
@@ -132,7 +132,7 @@ class EnergySummation(nn.Module):
         # if both None, default to a per-species, local energy offset
         if local_transform is None and total_transform is None:
             local_transform = Chain(
-                [PerSpeciesScale(), PerSpeciesOffset()], trainable=True
+                [PerAtomScale(), PerAtomShift()], trainable=True
             )
         self.local_transform = local_transform or Identity()
         self.total_transform = total_transform or Identity()
@@ -151,15 +151,7 @@ class EnergySummation(nn.Module):
         if not isinstance(graphs, AtomicGraphBatch):
             graphs = AtomicGraphBatch.from_graphs(graphs)
 
-        if energy_key in graphs.structure_labels:
-            energies = graphs.structure_labels[energy_key]
-        elif energy_key in graphs.atom_labels:
-            energies = graphs.atom_labels[energy_key]
-        else:
-            raise KeyError(
-                f"Could not find {energy_key} in either "
-                f"structure_labels or atom_labels"
-            )
+        energies = graphs.get_labels(energy_key)
 
         for transform in [self.local_transform, self.total_transform]:
             transform.fit_to_target(energies, graphs)

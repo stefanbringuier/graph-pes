@@ -221,6 +221,23 @@ class PerSpeciesParameter(torch.nn.Parameter):
                 self._accessed_Zs.add(Z_i.item())
         return super().__getitem__(Z)
 
+    def __setitem__(self, Z: int | Tensor, value: Tensor):
+        """
+        Index the values corresponding to the given atomic number/s.
+
+        Parameters
+        ----------
+        Z
+            The atomic number/s of the parameter to get.
+        """
+
+        if isinstance(Z, int):
+            self._accessed_Zs.add(Z)
+        else:
+            for Z_i in torch.unique(Z):
+                self._accessed_Zs.add(Z_i.item())
+        return super().__setitem__(Z, value)
+
     def numel(self) -> int:
         """Get the number of trainable parameters."""
 

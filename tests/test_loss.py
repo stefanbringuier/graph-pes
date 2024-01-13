@@ -18,7 +18,7 @@ def test_loss_ops():
     l1 = Loss("energy")
     l2 = Loss("forces")
 
-    weighted = 10 * l1 + 1 * l2
+    weighted = 10 * l1 + l2 * 1
     assert isinstance(weighted, WeightedLoss)
     assert set(weighted.losses) == {l1, l2}
     assert set(weighted.weights) == {10, 1}

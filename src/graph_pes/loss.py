@@ -4,7 +4,6 @@ from typing import Callable
 
 import torch
 from graph_pes.data import AtomicGraphBatch
-from graph_pes.data.atomic_graph import AtomicGraph
 from graph_pes.transform import Identity, Transform
 from torch import Tensor, nn
 
@@ -68,9 +67,16 @@ class Loss(nn.Module):
     ) -> torch.Tensor:
         """
         Computes the loss value.
+
+        Parameters
+        ----------
+        predictions
+            The predictions from the model.
+        graphs
+            The graphs containing the labels.
         """
         P_hat = predictions[self.property_key]
-        P_true = self._get_P(graphs)
+        P_true = graphs.get_labels(self.property_key)
 
         # apply transforms
         P_hat_prime = self.transform(P_hat, graphs)
@@ -84,14 +90,35 @@ class Loss(nn.Module):
         predictions: dict[str, torch.Tensor],
         graphs: AtomicGraphBatch,
     ) -> torch.Tensor:
-        P_hat = predictions[self.property_key]
-        P_true = self._get_P(graphs)
+        """
+        Compute the metric as applied directly to the predictions and labels.
 
-        # compute loss without transforms
-        return self.metric(P_hat, P_true)
+        Parameters
+        ----------
+        predictions
+            The predictions from the model.
+        graphs
+            The graphs containing the labels.
+        """
+
+        return self.metric(
+            predictions[self.property_key],
+            graphs.get_labels(self.property_key),
+        )
 
     def fit_transform(self, graphs: AtomicGraphBatch):
-        self.transform.fit_to_source(self._get_P(graphs), graphs)
+        """
+        Fit the transform to the labels.
+
+        Parameters
+        ----------
+        graphs
+            The graphs containing the labels.
+        """
+
+        self.transform.fit_to_source(
+            graphs.get_labels(self.property_key), graphs
+        )
 
     @property
     def name(self) -> str:
@@ -106,17 +133,6 @@ class Loss(nn.Module):
             .lower()
             .replace("loss", "")
         )
-
-    def _get_P(self, graphs: AtomicGraph):
-        if self.property_key in graphs.atom_labels:
-            return graphs.atom_labels[self.property_key]
-        elif self.property_key in graphs.structure_labels:
-            return graphs.structure_labels[self.property_key]
-        else:
-            raise KeyError(
-                f"Could not find {self.property_key} in either "
-                f"structure_labels or atom_labels"
-            )
 
     def __mul__(self, other: float) -> WeightedLoss:
         return WeightedLoss([self], [other])
@@ -141,6 +157,7 @@ class WeightedLoss(torch.nn.Module):
     A lightweight wrapper around a collection of weighted losses.
 
     Creation can be done in two ways:
+
     1. Directly, by passing a list of losses and weights.
     2. Via `+` and `*` operators
 
