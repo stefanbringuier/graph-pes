@@ -1,7 +1,7 @@
 import torch
 from ase import Atoms
 from graph_pes.data import convert_to_atomic_graph
-from graph_pes.transform import Identity, is_local_property
+from graph_pes.transform import Identity
 
 structure = Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)])
 structure.info["energy"] = -1.0
@@ -19,7 +19,7 @@ def test_identity():
 
 def test_is_local_property():
     energy = graph.get_labels("energy")
-    assert not is_local_property(energy, graph)
+    assert not graph.is_local_property(energy)
 
     forces = graph.get_labels("forces")
-    assert is_local_property(forces, graph)
+    assert graph.is_local_property(forces)
