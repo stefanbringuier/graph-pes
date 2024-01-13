@@ -364,10 +364,14 @@ class ConstrainedParameter(nn.Module, ABC):
     def __repr__(self):
         return f"{self.__class__.__name__}({self.constrained_value})"
 
+    def __neg__(self):
+        return self._do_math(0, torch.sub, rev=True)
+
 
 class PositiveParameter(ConstrainedParameter):
     """
-    A parameter constrained to be positive via an internal exponentiation.
+    Drop-in replacement for :class:`torch.nn.Parameter`. An internal
+    exponentiation ensures that the parameter is always positive.
 
     Parameters
     ----------

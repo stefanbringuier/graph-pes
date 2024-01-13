@@ -4,9 +4,11 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 import torch
-from graph_pes.core import GraphPESModel
+from graph_pes.core import EnergySummation, GraphPESModel
 from graph_pes.data import AtomicGraph
+from graph_pes.data.batching import AtomicGraphBatch
 from graph_pes.nn import MLP, PositiveParameter
+from graph_pes.transform import PerAtomShift
 from jaxtyping import Float
 from torch import Tensor, nn
 from torch_geometric.utils import scatter
@@ -87,18 +89,22 @@ class LennardJones(PairPotential):
     :class:`PositiveParameter` instances, which ensures that they are
     strictly positive.
 
-    Parameters
+    Attributes
     ----------
-    epsilon : Optional[float]
+    epsilon: :class:`PositiveParameter <graph_pes.nn.PositiveParameter>`
         The depth of the potential.
-    sigma : Optional[float]
+    sigma: :class:`PositiveParameter <graph_pes.nn.PositiveParameter>`
         The distance at which the potential is zero.
     """
 
-    def __init__(self, epsilon: float = 1.0, sigma: float = 0.5):
+    def __init__(self):
         super().__init__()
-        self.epsilon = PositiveParameter(epsilon)
-        self.sigma = PositiveParameter(sigma)
+        self.epsilon = PositiveParameter(0.1)
+        self.sigma = PositiveParameter(1.0)
+
+        # epsilon is a scaling term, so only need to learn a shift
+        # parameter (rather than a shift and scale)
+        self._energy_summation = EnergySummation(local_transform=PerAtomShift())
 
     def interaction(
         self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor
@@ -117,6 +123,81 @@ class LennardJones(PairPotential):
         """
         x = self.sigma / r
         return 4 * self.epsilon * (x**12 - x**6)
+
+    def pre_fit(self, graph: AtomicGraphBatch):
+        super().pre_fit(graph)
+
+        # set the potential depth to be shallow
+        self.epsilon = PositiveParameter(0.01)
+
+        # set the distance at which the potential is zero to be
+        # close to the minimum pair-wise distance
+        d = torch.quantile(graph.neighbour_distances, 0.01)
+        self.sigma = PositiveParameter(d)
+
+
+class Morse(PairPotential):
+    r"""
+    A pair potential of the form:
+
+    .. math::
+        V(r_{ij}, Z_i, Z_j) = V(r_{ij}) = D (1 - e^{-a(r_{ij} - r_0)})^2
+
+    where :math:`r_{ij}` is the distance between atoms :math:`i` and :math:`j`,
+    and :math:`D`, :math:`a` and :math:`r_0` control the depth, width and
+    center of the potential well, respectively. Internally, these are stored
+    as :class:`PositiveParameter` instances.
+
+    Attributes
+    ----------
+    D: :class:`PositiveParameter <graph_pes.nn.PositiveParameter>`
+        The depth of the potential.
+    a: :class:`PositiveParameter <graph_pes.nn.PositiveParameter>`
+        The width of the potential.
+    r0: :class:`PositiveParameter <graph_pes.nn.PositiveParameter>`
+        The center of the potential.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.D = PositiveParameter(0.1)
+        self.a = PositiveParameter(1.0)
+        self.r0 = PositiveParameter(0.5)
+
+        # D is a scaling term, so only need to learn a shift
+        # parameter (rather than a shift and scale)
+        self._energy_summation = EnergySummation(local_transform=PerAtomShift())
+
+    def interaction(
+        self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor
+    ):
+        """
+        Evaluate the pair potential.
+
+        Parameters
+        ----------
+        r : torch.Tensor
+            The pair-wise distances between the atoms.
+        Z_i : torch.Tensor
+            The atomic numbers of the central atoms. (unused)
+        Z_j : torch.Tensor
+            The atomic numbers of the neighbours. (unused)
+        """
+        return self.D * (1 - torch.exp(-self.a * (r - self.r0))) ** 2
+
+    def pre_fit(self, graph: AtomicGraphBatch):
+        super().pre_fit(graph)
+
+        # set the potential depth to be shallow
+        self.D = PositiveParameter(0.1)
+
+        # set the center of the well to be close to the minimum pair-wise
+        # distance
+        d = torch.quantile(graph.neighbour_distances, 0.01)
+        self.r0 = PositiveParameter(d)
+
+        # set the width to be broad
+        self.a = PositiveParameter(0.5)
 
 
 class SimplePP(PairPotential):

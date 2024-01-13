@@ -116,9 +116,7 @@ class Loss(nn.Module):
             The graphs containing the labels.
         """
 
-        self.transform.fit_to_source(
-            graphs.get_labels(self.property_key), graphs
-        )
+        self.transform.fit(graphs.get_labels(self.property_key), graphs)
 
     @property
     def name(self) -> str:

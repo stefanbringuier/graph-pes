@@ -77,36 +77,36 @@ class GraphPESModel(nn.Module, ABC):
         super().__init__()
         self._energy_summation = EnergySummation()
 
-    # def __repr__(self):
-    #     # modified from torch.nn.Module.__repr__
-    #     # changes:
-    #     # - don't print any modules that start with _
+    def __repr__(self):
+        # modified from torch.nn.Module.__repr__
+        # changes:
+        # - don't print any modules that start with _
 
-    #     # We treat the extra repr like the sub-module, one item per line
-    #     extra_lines = []
-    #     extra_repr = self.extra_repr()
-    #     # empty string will be split into list ['']
-    #     if extra_repr:
-    #         extra_lines = extra_repr.split("\n")
-    #     child_lines = []
-    #     for key, module in self._modules.items():
-    #         if key.startswith("_"):
-    #             continue
-    #         mod_str = repr(module)
-    #         mod_str = nn.modules.module._addindent(mod_str, 2)
-    #         child_lines.append("(" + key + "): " + mod_str)
-    #     lines = extra_lines + child_lines
+        # We treat the extra repr like the sub-module, one item per line
+        extra_lines = []
+        extra_repr = self.extra_repr()
+        # empty string will be split into list ['']
+        if extra_repr:
+            extra_lines = extra_repr.split("\n")
+        child_lines = []
+        for key, module in self._modules.items():
+            if key.startswith("_"):
+                continue
+            mod_str = repr(module)
+            mod_str = nn.modules.module._addindent(mod_str, 2)
+            child_lines.append("(" + key + "): " + mod_str)
+        lines = extra_lines + child_lines
 
-    #     main_str = self._get_name() + "("
-    #     if lines:
-    #         # simple one-liner info, which most builtin Modules will use
-    #         if len(extra_lines) == 1 and not child_lines:
-    #             main_str += extra_lines[0]
-    #         else:
-    #             main_str += "\n  " + "\n  ".join(lines) + "\n"
+        main_str = self._get_name() + "("
+        if lines:
+            # simple one-liner info, which most builtin Modules will use
+            if len(extra_lines) == 1 and not child_lines:
+                main_str += extra_lines[0]
+            else:
+                main_str += "\n  " + "\n  ".join(lines) + "\n"
 
-    #     main_str += ")"
-    #     return main_str
+        main_str += ")"
+        return main_str
 
     def __add__(self, other: GraphPESModel) -> Ensemble:
         """
@@ -120,6 +120,23 @@ class GraphPESModel(nn.Module, ABC):
 
         return Ensemble([self, other], mean=False)
 
+    def pre_fit(self, graphs: AtomicGraphBatch):
+        """
+        Perform optional pre-processing of the training data.
+
+        By default, this fits a :class:`graph_pes.transform.PerAtomShift`
+        and :class:`graph_pes.transform.PerAtomScale` to the energies
+        of the training data, such that, before training, a unit-Normal
+        output by the underlying model will result in energy predictions
+        that are distributed according to the training data.
+
+        Parameters
+        ----------
+        graphs
+            The training data.
+        """
+        self._energy_summation.fit_to_graphs(graphs)
+
 
 class EnergySummation(nn.Module):
     def __init__(
@@ -132,15 +149,15 @@ class EnergySummation(nn.Module):
         # if both None, default to a per-species, local energy offset
         if local_transform is None and total_transform is None:
             local_transform = Chain(
-                [PerAtomScale(), PerAtomShift()], trainable=True
+                [PerAtomShift(), PerAtomScale()], trainable=True
             )
-        self.local_transform = local_transform or Identity()
-        self.total_transform = total_transform or Identity()
+        self.local_transform: Transform = local_transform or Identity()
+        self.total_transform: Transform = total_transform or Identity()
 
     def forward(self, local_energies: torch.Tensor, graph: AtomicGraphBatch):
-        local_energies = self.local_transform(local_energies, graph)
+        local_energies = self.local_transform.inverse(local_energies, graph)
         total_E = sum_per_structure(local_energies, graph)
-        total_E = self.total_transform(total_E, graph)
+        total_E = self.total_transform.inverse(total_E, graph)
         return total_E
 
     def fit_to_graphs(
@@ -154,7 +171,7 @@ class EnergySummation(nn.Module):
         energies = graphs.get_labels(energy_key)
 
         for transform in [self.local_transform, self.total_transform]:
-            transform.fit_to_target(energies, graphs)
+            transform.fit(energies, graphs)
 
 
 class Ensemble(GraphPESModel):
