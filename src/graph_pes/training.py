@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable, TypeVar
 
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from torch import optim
 
 from .core import GraphPESModel, get_predictions
 from .data import AtomicGraph
@@ -14,12 +14,14 @@ from .loss import RMSE, Loss, WeightedLoss
 from .transform import Chain, PerAtomScale, Scale
 from .util import Keys
 
+Model = TypeVar("Model", bound=GraphPESModel)
+
 
 def train_model(
-    model: GraphPESModel,
+    model: Model,
     train_data: list[AtomicGraph],
     val_data: list[AtomicGraph] | None = None,
-    optimizer: optim.Optimizer | None = None,
+    optimizer: Callable[[Model], torch.optim.Optimizer] | None = None,
     loss: WeightedLoss | Loss | None = None,
     property_labels: dict[Keys, str] | None = None,
     *,
@@ -73,18 +75,21 @@ def train_model(
     )
 
     # deal with fitting transforms
-    if pre_fit_model:
-        model.pre_fit(batch)
+    # TODO: what if not training on energy?
+    if pre_fit_model and Keys.ENERGY in property_labels:
+        model.pre_fit(batch, property_labels[Keys.ENERGY])
 
     actual_loss = get_loss(loss, property_labels)
     actual_loss.fit_transform(batch)
 
     # deal with the optimizer
     if optimizer is None:
-        optimizer = optim.Adam(model.parameters())
+        opt = torch.optim.Adam(model.parameters(), lr=3e-4)
+    else:
+        opt = optimizer(model)
 
     # create the task (a pytorch lightning module)
-    task = LearnThePES(model, optimizer, actual_loss, property_labels)
+    task = LearnThePES(model, opt, actual_loss, property_labels)
 
     # create the trainer
     kwargs = default_trainer_kwargs()
@@ -99,9 +104,6 @@ def train_model(
 
 
 def get_existing_keys(batch: AtomicGraphBatch) -> dict[Keys, str]:
-    # return {
-    #     value: key for key, value in Keys.__members__.items() if key in batch
-    # }
     return {
         key: key.value
         for key in Keys.__members__.values()
@@ -113,7 +115,7 @@ class LearnThePES(pl.LightningModule):
     def __init__(
         self,
         model: GraphPESModel,
-        optimizer: optim.Optimizer,
+        optimizer: torch.optim.Optimizer,
         loss: WeightedLoss,
         property_labels: dict[Keys, str],
     ):

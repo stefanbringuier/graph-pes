@@ -8,6 +8,9 @@ import torch.nn as nn
 from graph_pes.util import MAX_Z, pairs
 from torch import Tensor
 
+# TODO support access to .data via property and setter on ConstrainedParameter
+# / cleanup the ConstrainedParameter class
+
 
 class MLP(nn.Module):
     """

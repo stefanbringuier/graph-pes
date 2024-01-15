@@ -118,7 +118,7 @@ class GraphPESModel(nn.Module, ABC):
 
         return Ensemble([self, other], mean=False)
 
-    def pre_fit(self, graphs: AtomicGraphBatch):
+    def pre_fit(self, graphs: AtomicGraphBatch, energy_label: str = "energy"):
         """
         Perform optional pre-processing of the training data.
 
@@ -133,7 +133,7 @@ class GraphPESModel(nn.Module, ABC):
         graphs
             The training data.
         """
-        self._energy_summation.fit_to_graphs(graphs)
+        self._energy_summation.fit_to_graphs(graphs, energy_label)
 
 
 class EnergySummation(nn.Module):
@@ -161,13 +161,13 @@ class EnergySummation(nn.Module):
     def fit_to_graphs(
         self,
         graphs: AtomicGraphBatch | list[AtomicGraph],
-        energy_key: str = "energy",
+        energy_label: str = "energy",
     ):
         if not isinstance(graphs, AtomicGraphBatch):
             graphs = AtomicGraphBatch.from_graphs(graphs)
 
         for transform in [self.local_transform, self.total_transform]:
-            transform.fit(graphs[energy_key], graphs)
+            transform.fit(graphs[energy_label], graphs)
 
 
 class Ensemble(GraphPESModel):

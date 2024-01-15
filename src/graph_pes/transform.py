@@ -208,9 +208,6 @@ class PerAtomShift(Transform):
             The atomic graphs that x originates from.
         """
         # reset the shift
-        self.shift = PerSpeciesParameter.of_dim(
-            1, requires_grad=self.trainable, generator=0
-        )
         zs = torch.unique(graphs.Z)
 
         if graphs.is_local_property(x):
@@ -327,7 +324,7 @@ class PerAtomScale(Transform):
         scale is fixed.
     """
 
-    def __init__(self, trainable: bool = True, act_on_norms: bool = True):
+    def __init__(self, trainable: bool = True, act_on_norms: bool = False):
         super().__init__(trainable=trainable)
         self.scales = PerSpeciesParameter.of_dim(
             dim=1, requires_grad=trainable, generator=1
@@ -356,9 +353,6 @@ class PerAtomScale(Transform):
             The atomic graphs that x originates from.
         """
         # reset the scale
-        self.scales = PerSpeciesParameter.of_dim(
-            1, requires_grad=self.trainable, generator=1
-        )
         zs = torch.unique(graphs.Z)
 
         if self.act_on_norms:
@@ -466,5 +460,5 @@ class Scale(Transform):
 
     @torch.no_grad()
     def fit(self, x: Tensor, graphs: AtomicGraphBatch) -> Transform:
-        self.scale = nn.Parameter(x.var(), requires_grad=self.trainable)
+        self.scale.data = x.var()
         return self
