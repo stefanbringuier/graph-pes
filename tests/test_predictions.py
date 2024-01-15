@@ -1,4 +1,5 @@
 import pytest
+import torch
 from ase import Atoms
 from graph_pes.core import get_predictions
 from graph_pes.data import AtomicGraphBatch, convert_to_atomic_graph
@@ -63,3 +64,12 @@ def test_batched_prediction():
 
     for key in Keys.ENERGY, Keys.FORCES, Keys.STRESS:
         assert predictions[key.value].shape == expected_shapes[key]
+
+
+def test_isolated_atom():
+    atom = Atoms("H", positions=[(0, 0, 0)], pbc=False)
+    graph = convert_to_atomic_graph(atom, cutoff=1.5)
+    assert graph.n_edges == 0
+
+    predictions = get_predictions(LennardJones(), graph)
+    assert torch.allclose(predictions["forces"], torch.zeros(1, 3))
