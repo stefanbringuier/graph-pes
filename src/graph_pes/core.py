@@ -9,7 +9,6 @@ from graph_pes.transform import (
     Chain,
     Identity,
     PerAtomScale,
-    PerAtomShift,
     Transform,
 )
 from graph_pes.util import Keys, differentiate, require_grad
@@ -148,7 +147,7 @@ class EnergySummation(nn.Module):
         # if both None, default to a per-species, local energy offset
         if local_transform is None and total_transform is None:
             local_transform = Chain(
-                [PerAtomShift(), PerAtomScale()], trainable=True
+                [PerAtomScale(), PerAtomScale()], trainable=True
             )
         self.local_transform: Transform = local_transform or Identity()
         self.total_transform: Transform = total_transform or Identity()

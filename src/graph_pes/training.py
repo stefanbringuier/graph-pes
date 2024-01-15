@@ -11,7 +11,7 @@ from .core import GraphPESModel, get_predictions
 from .data import AtomicGraph
 from .data.batching import AtomicDataLoader, AtomicGraphBatch
 from .loss import RMSE, Loss, WeightedLoss
-from .transform import Chain, PerAtomScale, PerAtomShift, Scale
+from .transform import Chain, PerAtomScale, Scale
 from .util import Keys
 
 
@@ -207,7 +207,7 @@ def get_loss(
 ) -> WeightedLoss:
     if loss is None:
         default_transforms = {
-            Keys.ENERGY: Chain([PerAtomScale(), PerAtomShift()]),
+            Keys.ENERGY: Chain([PerAtomScale(), PerAtomScale()]),
             Keys.FORCES: PerAtomScale(),
             Keys.STRESS: Scale(),
         }

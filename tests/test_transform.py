@@ -1,8 +1,9 @@
+import numpy as np
 import torch
 from ase import Atoms
 from graph_pes.data import convert_to_atomic_graph, convert_to_atomic_graphs
 from graph_pes.data.batching import AtomicGraphBatch
-from graph_pes.transform import Identity, PerAtomShift
+from graph_pes.transform import Identity, PerAtomScale, PerAtomShift
 
 structure = Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)])
 structure.info["energy"] = -1.0
@@ -40,6 +41,7 @@ def test_per_atom_transforms():
         atoms.info["energy"] = n_H * H_energy + n_C * C_energy
         local_prop = [H_energy] * n_H + [C_energy] * n_C
         atoms.arrays["local_prop"] = local_prop
+        atoms.arrays["forces"] = np.zeros((n_H + n_C, 3))
         structures.append(atoms)
 
     graphs = convert_to_atomic_graphs(structures, cutoff=1.5)
@@ -49,7 +51,11 @@ def test_per_atom_transforms():
     shift = PerAtomShift(trainable=False)
     total_energies = batch["energy"]
     shift.fit(total_energies, batch)
+    shifted_total_energies = shift(total_energies, batch)
 
+    # shape preservation
+    assert shifted_total_energies.shape == total_energies.shape
+    # learn the correct shifts
     assert torch.allclose(
         shift.shift[torch.tensor([1, 6])].detach().squeeze(),
         torch.tensor([H_energy, C_energy]),
@@ -68,7 +74,8 @@ def test_per_atom_transforms():
     local_energies = batch["local_prop"]
 
     shift.fit(local_energies, batch)
-
+    shifted_local_energies = shift(local_energies, batch)
+    assert shifted_local_energies.shape == local_energies.shape
     assert torch.allclose(
         shift.shift[torch.tensor([1, 6])].detach().squeeze(),
         torch.tensor([H_energy, C_energy]),
@@ -81,3 +88,11 @@ def test_per_atom_transforms():
         atol=1e-5,
     )
     assert not centered_local_energy.requires_grad
+
+    # test scaling forces
+    scale = PerAtomScale(trainable=False)
+    forces = batch["forces"]
+    scale.fit(forces, batch)
+
+    scaled_forces = scale(forces, batch)
+    assert scaled_forces.shape == forces.shape

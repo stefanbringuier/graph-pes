@@ -8,7 +8,7 @@ from graph_pes.core import EnergySummation, GraphPESModel
 from graph_pes.data import AtomicGraph
 from graph_pes.data.batching import AtomicGraphBatch
 from graph_pes.nn import MLP, PositiveParameter
-from graph_pes.transform import PerAtomShift
+from graph_pes.transform import PerAtomScale
 from jaxtyping import Float
 from torch import Tensor, nn
 from torch_geometric.utils import scatter
@@ -104,7 +104,7 @@ class LennardJones(PairPotential):
 
         # epsilon is a scaling term, so only need to learn a shift
         # parameter (rather than a shift and scale)
-        self._energy_summation = EnergySummation(local_transform=PerAtomShift())
+        self._energy_summation = EnergySummation(local_transform=PerAtomScale())
 
     def interaction(
         self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor
@@ -166,7 +166,7 @@ class Morse(PairPotential):
 
         # D is a scaling term, so only need to learn a shift
         # parameter (rather than a shift and scale)
-        self._energy_summation = EnergySummation(local_transform=PerAtomShift())
+        self._energy_summation = EnergySummation(local_transform=PerAtomScale())
 
     def interaction(
         self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor

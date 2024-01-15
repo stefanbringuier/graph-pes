@@ -261,10 +261,11 @@ class PerAtomShift(Transform):
             The input data, shifted by the learned shift.
         """
         shifts = self.shift[graph.Z].squeeze()
-        if graph.is_local_property(x):
-            return x - shifts
-        else:
-            return x - sum_per_structure(shifts, graph)
+        if not graph.is_local_property(x):
+            shifts = sum_per_structure(shifts, graph)
+
+        ndims = len(x.shape)
+        return x - shifts.view(-1, *([1] * (ndims - 1)))
 
     def inverse(
         self,
@@ -291,10 +292,11 @@ class PerAtomShift(Transform):
             The batch of atomic graphs.
         """
         shifts = self.shift[graph.Z].squeeze()
-        if graph.is_local_property(x):
-            return x + shifts
-        else:
-            return x + sum_per_structure(shifts, graph)
+        if not graph.is_local_property(x):
+            shifts = sum_per_structure(shifts, graph)
+
+        ndims = len(x.shape)
+        return x + shifts.view(-1, *([1] * (ndims - 1)))
 
     def __repr__(self):
         return self.shift.__repr__().replace(
@@ -325,12 +327,13 @@ class PerAtomScale(Transform):
         scale is fixed.
     """
 
-    def __init__(self, trainable: bool = True):
+    def __init__(self, trainable: bool = True, act_on_norms: bool = True):
         super().__init__(trainable=trainable)
         self.scales = PerSpeciesParameter.of_dim(
             dim=1, requires_grad=trainable, generator=1
         )
         """The fitted, per-species scales (variances)."""
+        self.act_on_norms = act_on_norms
 
     @torch.no_grad()
     def fit(self, x: LocalProperty | GlobalProperty, graphs: AtomicGraphBatch):
@@ -357,6 +360,9 @@ class PerAtomScale(Transform):
             1, requires_grad=self.trainable, generator=1
         )
         zs = torch.unique(graphs.Z)
+
+        if self.act_on_norms:
+            x = x.norm(dim=-1)
 
         if graphs.is_local_property(x):
             # we have one data point per atom in the batch
@@ -399,11 +405,12 @@ class PerAtomScale(Transform):
         Shaped[Tensor, "shape ..."]
             The input data, scaled by the learned scale.
         """
-        if graph.is_local_property(x):
-            return x / self.scales[graph.Z].squeeze() ** 0.5
-        else:
-            var = sum_per_structure(self.scales[graph.Z].squeeze(), graph)
-            return x / var**0.5
+        scales = self.scales[graph.Z]
+        if not graph.is_local_property(x):
+            scales = sum_per_structure(scales, graph)
+
+        ndims = len(x.shape)
+        return x / scales.view(-1, *([1] * (ndims - 1))) ** 0.5
 
     def inverse(
         self,
@@ -433,11 +440,12 @@ class PerAtomScale(Transform):
         Shaped[Tensor, "shape ..."]
             The input data, scaled by the inverse of the learned scale.
         """
-        if graph.is_local_property(x):
-            return x * self.scales[graph.Z].squeeze() ** 0.5
-        else:
-            var = sum_per_structure(self.scales[graph.Z].squeeze(), graph)
-            return x * var**0.5
+        scales = self.scales[graph.Z]
+        if not graph.is_local_property(x):
+            scales = sum_per_structure(scales, graph)
+
+        ndims = len(x.shape)
+        return x * scales.view(-1, *([1] * (ndims - 1))) ** 0.5
 
     def __repr__(self):
         return self.scales.__repr__().replace(

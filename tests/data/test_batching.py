@@ -38,18 +38,21 @@ def test_label_batching():
 
     # per-atom labels:
     structures[0].arrays["atom_label"] = [0, 1]
+    structures[0].arrays["force"] = np.zeros((2, 3))
     structures[1].arrays["atom_label"] = [2, 3, 4]
+    structures[1].arrays["force"] = np.zeros((3, 3))
 
     graphs = convert_to_atomic_graphs(structures, cutoff=1.5)
     batch = AtomicGraphBatch.from_graphs(graphs)
 
     # per-structure, array-type labels are concatenated along a new batch axis
     assert batch.structure_labels["stress"].shape == (2, 3, 3)
-    # per-structure, scalar-type labels are concatenated
+    # energy is a scalar, so the "new batch axis" is just concatenation:
     assert batch.structure_labels["label"].tolist() == [0, 1]
 
     # per-atom labels are concatenated along the first axis
     assert batch.atom_labels["atom_label"].tolist() == [0, 1, 2, 3, 4]
+    assert batch.atom_labels["force"].shape == (5, 3)
 
 
 def test_pbcs():
