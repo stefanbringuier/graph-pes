@@ -82,3 +82,14 @@ exclude_also = [
     "\\.\\.\\.",
     "except ImportError",
 ]
+
+[tool.pytest.ini_options]
+# ignore all warnings coming from the pytorch_lightning package
+filterwarnings = [
+    "ignore::DeprecationWarning:pytorch_lightning",
+    "ignore::DeprecationWarning:lightning_fabric",
+    "ignore::DeprecationWarning:lightning_utilities",
+    "ignore::DeprecationWarning:pkg_resources",
+    "ignore::DeprecationWarning:torchmetrics",
+    "ignore::UserWarning:pytorch_lightning",
+]
