@@ -87,8 +87,8 @@ class LennardJones(PairPotential):
 
     where :math:`r_{ij}` is the distance between atoms :math:`i` and :math:`j`.
     Internally, :math:`\varepsilon` and :math:`\sigma` are stored as
-    :class:`PositiveParameter` instances, which ensures that they are
-    strictly positive.
+    :class:`PositiveParameter <graph_pes.nn,PositiveParamerer>` instances,
+    which ensures that they are kept strictly positive during training.
 
     Attributes
     ----------
@@ -127,9 +127,6 @@ class LennardJones(PairPotential):
 
     def pre_fit(self, graph: AtomicGraphBatch, energy_label: str = "energy"):
         super().pre_fit(graph, energy_label)
-
-        # set the potential depth to be shallow
-        self.epsilon = PositiveParameter(0.01)
 
         # set the distance at which the potential is zero to be
         # close to the minimum pair-wise distance

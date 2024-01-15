@@ -9,8 +9,8 @@
    data
    training
    losses
-   nn
    transforms
+   examples
   
 ########
 GraphPES

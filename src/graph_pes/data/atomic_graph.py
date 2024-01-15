@@ -241,7 +241,10 @@ class AtomicGraph:
 
 
 def convert_to_atomic_graph(
-    structure: ase.Atoms, cutoff: float, labels: list[str] | None = None
+    structure: ase.Atoms,
+    cutoff: float,
+    atom_labels: list[str] | None = None,
+    structure_labels: list[str] | None = None,
 ) -> AtomicGraph:
     """
     Convert an ASE Atoms object to an AtomicGraph.
@@ -259,7 +262,9 @@ def convert_to_atomic_graph(
         will be included.
     """
 
-    atom_info, structure_info = extract_information(structure, labels)
+    atom_info, structure_info = extract_information(
+        structure, atom_labels, structure_labels
+    )
     i, j, offsets = neighbor_list("ijS", structure, cutoff)
     return AtomicGraph(
         Z=torch.LongTensor(structure.numbers),
@@ -357,7 +362,8 @@ def extract_tensors(
 def convert_to_atomic_graphs(
     structures: Iterable[ase.Atoms] | ase.Atoms,
     cutoff: float,
-    labels: list[str] | None = None,
+    atom_labels: list[str] | None = None,
+    structure_labels: list[str] | None = None,
 ) -> list[AtomicGraph]:
     """
     Convert a collection of ASE Atoms into a list of AtomicGraphs.
@@ -374,6 +380,13 @@ def convert_to_atomic_graphs(
         or `atoms.arrays` dict. If not provided, all possible labels
         will be included.
     """
+    if atom_labels is None and structure_labels:
+        atom_labels = []
+    if structure_labels is None and atom_labels:
+        structure_labels = []
     if isinstance(structures, ase.Atoms):
         structures = [structures]
-    return [convert_to_atomic_graph(s, cutoff, labels) for s in structures]
+    return [
+        convert_to_atomic_graph(s, cutoff, atom_labels, structure_labels)
+        for s in structures
+    ]

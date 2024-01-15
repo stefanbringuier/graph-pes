@@ -12,7 +12,20 @@ All models implemented in ``graph_pes`` are subclasses of
    :members: predict_local_energies, __add__
 
 
+Available Models
+================
+
 .. toctree::
+   :maxdepth: 2
 
    models/pairwise
+
+
+Helper Classes and Functions
+============================
+.. toctree::
+   :maxdepth: 2
+
    models/distances
+   nn
+

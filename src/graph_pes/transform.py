@@ -447,6 +447,14 @@ class PerAtomScale(Transform):
         )
 
 
+def PerAtomStandardScaler(trainable: bool = True) -> Transform:
+    r"""
+    A convenience function for a chain of :class:`PerAtomShift` and
+    :class:`PerAtomScale` transforms.
+    """
+    return Chain([PerAtomShift(trainable), PerAtomScale(trainable)])
+
+
 class Scale(Transform):
     def __init__(self, trainable: bool = True, scale: float = 1.0):
         super().__init__(trainable=trainable)

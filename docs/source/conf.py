@@ -26,6 +26,7 @@ extensions = [
     "sphinx_copybutton",
 ]
 
+
 templates_path = ["_templates"]
 exclude_patterns = []
 

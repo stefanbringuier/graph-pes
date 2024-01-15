@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Callable
 
 import pytorch_lightning as pl
 import torch
@@ -14,14 +15,12 @@ from .loss import RMSE, Loss, WeightedLoss
 from .transform import Chain, PerAtomScale, Scale
 from .util import Keys
 
-Model = TypeVar("Model", bound=GraphPESModel)
-
 
 def train_model(
-    model: Model,
+    model: GraphPESModel,
     train_data: list[AtomicGraph],
     val_data: list[AtomicGraph] | None = None,
-    optimizer: Callable[[Model], torch.optim.Optimizer] | None = None,
+    optimizer: Callable[[], torch.optim.Optimizer] | None = None,
     loss: WeightedLoss | Loss | None = None,
     property_labels: dict[Keys, str] | None = None,
     *,
@@ -30,6 +29,14 @@ def train_model(
     # pytorch lightning
     **trainer_kwargs,
 ):
+    # sanity check, but also ensures things like per-atom parameters
+    # are registered
+    try:
+        for graph in train_data[:10]:
+            model(graph)
+    except Exception as e:
+        raise ValueError("The model does not appear to work") from e
+
     # TODO check using a strict flag that all the data have the same keys
     batch = AtomicGraphBatch.from_graphs(train_data)
 
@@ -86,7 +93,7 @@ def train_model(
     if optimizer is None:
         opt = torch.optim.Adam(model.parameters(), lr=3e-4)
     else:
-        opt = optimizer(model)
+        opt = optimizer()
 
     # create the task (a pytorch lightning module)
     task = LearnThePES(model, opt, actual_loss, property_labels)
@@ -95,6 +102,14 @@ def train_model(
     kwargs = default_trainer_kwargs()
     kwargs.update(trainer_kwargs)
     trainer = pl.Trainer(**kwargs)
+
+    # log info
+    params = sum(p.numel() for p in model.parameters())
+    device = trainer.accelerator.__class__.__name__.replace("Accelerator", "")
+    print(f"Training on : {list(property_labels.values())}")
+    print(f"# of params : {params}")
+    print(f"Device      : {device}")
+    print()
 
     # train
     trainer.fit(task, train_loader, val_loader)
@@ -251,5 +266,18 @@ def default_trainer_kwargs() -> dict:
     return {
         "accelerator": "auto",
         "max_epochs": 100,
+        "enable_model_summary": False,
         "callbacks": [es_callback, checkpoint_callback],
     }
+
+
+# disable verbose logging from pytorch lightning
+
+
+def device_info_filter(record):
+    return "PU available: " not in record.getMessage()
+
+
+logging.getLogger("pytorch_lightning.utilities.rank_zero").addFilter(
+    device_info_filter
+)
