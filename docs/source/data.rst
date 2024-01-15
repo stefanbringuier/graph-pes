@@ -23,6 +23,10 @@ which converts an ASE atoms object into an :class:`AtomicGraph<graph_pes.data.At
 .. autofunction :: graph_pes.data.convert_to_atomic_graph
 .. autofunction :: graph_pes.data.convert_to_atomic_graphs
 
+.. autoclass :: graph_pes.data.LocalProperty
+.. autoclass :: graph_pes.data.GlobalProperty
+
+
 
 Batching
 ========

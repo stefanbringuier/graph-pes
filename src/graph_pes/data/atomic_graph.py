@@ -191,7 +191,7 @@ class AtomicGraph:
             structure_labels=process_dict(self.structure_labels),
         )
 
-    def get_labels(self, key: str) -> Tensor:
+    def __getitem__(self, key: str) -> Tensor:
         """
         Get the labels for the specified key.
 
@@ -208,6 +208,13 @@ class AtomicGraph:
             if key in labels:
                 return labels[key]
         raise KeyError(f"Could not find label '{key}'")
+
+    def __contains__(self, key: str) -> bool:
+        return (
+            key in self.atom_labels
+            or key in self.edge_labels
+            or key in self.structure_labels
+        )
 
     def is_local_property(self, x: Tensor) -> bool:
         """

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
-from typing import NamedTuple
 
 import torch
 from graph_pes.data import AtomicGraph
@@ -14,6 +12,7 @@ from graph_pes.transform import (
     PerAtomShift,
     Transform,
 )
+from graph_pes.util import Keys, differentiate, require_grad
 from jaxtyping import Float
 from torch import Tensor, nn
 
@@ -168,10 +167,8 @@ class EnergySummation(nn.Module):
         if not isinstance(graphs, AtomicGraphBatch):
             graphs = AtomicGraphBatch.from_graphs(graphs)
 
-        energies = graphs.get_labels(energy_key)
-
         for transform in [self.local_transform, self.total_transform]:
-            transform.fit(energies, graphs)
+            transform.fit(graphs[energy_key], graphs)
 
 
 class Ensemble(GraphPESModel):
@@ -189,110 +186,82 @@ class Ensemble(GraphPESModel):
         return f"Ensemble({self.models}, aggregation={aggregation})"
 
 
-@contextmanager
-def require_grad(tensor: torch.Tensor):
-    # check if in a torch.no_grad() context: if so,
-    # raise an error
-    if not torch.is_grad_enabled():
-        raise RuntimeError(
-            "Autograd is disabled, but you are trying to "
-            "calculate gradients. Please wrap your code in "
-            "a torch.enable_grad() context."
-        )
-
-    req_grad = tensor.requires_grad
-    tensor.requires_grad_(True)
-    yield
-    tensor.requires_grad_(req_grad)
-
-
-class Prediction(NamedTuple):
-    energy: torch.Tensor
-    forces: torch.Tensor
-    stress: torch.Tensor | None = None
-
-
-def get_predictions(pes: GraphPESModel, structure: AtomicGraph) -> Prediction:
+# TODO: add training flag to this so that we don't create the graph needlessly
+# when in eval mode
+def get_predictions(
+    pes: GraphPESModel,
+    structure: AtomicGraph,
+    property_labels: dict[Keys, str] | None = None,
+) -> dict[str, torch.Tensor]:
     """
-    Evaluate the `pes`  on `structure` to obtain the total energy,
-    forces on each atom, and optionally a stress tensor (if the
-    structure has a unit cell).
+    Evaluate the `pes` on `structure` to get the labels requested.
 
     Parameters
     ----------
-    pes : PES
+    pes
         The PES to use.
-    structure : AtomicStructure
+    structure
         The atomic structure to evaluate.
-    """
-
-    if not structure.has_cell:
-        # don't care about stress
-        with require_grad(structure._positions):
-            total_energy = pes(structure)
-            dE_dR = get_gradient(total_energy, (structure._positions,))[0]
-        return Prediction(total_energy, -dE_dR)
-
-    # the virial stress tensor is the gradient of the total energy wrt
-    # an infinitesimal change in the cell parameters
-    actual_cell = structure.cell
-    change_to_cell = torch.zeros_like(actual_cell, requires_grad=True)
-    symmetric_change = 0.5 * (change_to_cell + change_to_cell.transpose(-1, -2))
-    structure.cell = actual_cell + symmetric_change
-    with require_grad(structure._positions):
-        total_energy = pes(structure)
-        (dE_dR, dCell_dR) = get_gradient(
-            total_energy, (structure._positions, change_to_cell)
-        )
-
-    structure.cell = actual_cell
-    volume = torch.det(actual_cell).view(-1, 1, 1)
-    stress = -dCell_dR / volume
-
-    return Prediction(total_energy, -dE_dR, stress)
-
-
-def energy_and_forces(pes: GraphPESModel, structure: AtomicGraph):
-    """
-    Evaluate the `pes`  on `structure` to obtain both the
-    total energy and the forces on each atom.
-
-    Parameters
-    ----------
-    pes : PES
-        The PES to use.
-    structure : AtomicStructure
-        The atomic structure to evaluate.
+    property_labels
+        The names of the properties to return. If None, all available
+        properties are returned.
 
     Returns
     -------
-    EnergyAndForces
-        The energy of the structure and forces on each atom.
+    dict[str, torch.Tensor]
+        The requested properties.
+
+    Examples
+    --------
+    >>> # TODO
+
     """
 
-    # use the autograd machinery to auto-magically
-    # calculate forces for (almost) free
-    structure._positions.requires_grad_(True)
-    energy = pes(structure)
-    dE_dR = get_gradient(energy, (structure._positions,))[0]
-    structure._positions.requires_grad_(False)
-    return dict(energy=energy.squeeze(), forces=-dE_dR)
+    if property_labels is None:
+        property_labels = {
+            Keys.ENERGY: "energy",
+            Keys.FORCES: "forces",
+        }
+        if structure.has_cell:
+            property_labels[Keys.STRESS] = "stress"
 
+    else:
+        if Keys.STRESS in property_labels and not structure.has_cell:
+            raise ValueError("Can't predict stress without cell information.")
 
-def get_gradient(
-    energy: torch.Tensor,
-    things: tuple[torch.Tensor, ...],
-):
-    grads = torch.autograd.grad(
-        energy.sum(),
-        things,
-        create_graph=True,
-        allow_unused=True,
-    )
+    predictions = {}
 
-    return tuple(
-        output
-        if output is not None
-        else torch.zeros_like(input, requires_grad=True)
-        for (output, input) in zip(grads, things)
-    )
+    # setup for calculating stress:
+    if Keys.STRESS in property_labels:
+        # The virial stress tensor is the gradient of the total energy wrt
+        # an infinitesimal change in the cell parameters.
+        # We therefore add this change to the cell, such that
+        # we can calculate the gradient wrt later if required.
+        #
+        # See <> TODO: find reference
+        actual_cell = structure.cell
+        change_to_cell = torch.zeros_like(actual_cell, requires_grad=True)
+        symmetric_change = 0.5 * (
+            change_to_cell + change_to_cell.transpose(-1, -2)
+        )
+        structure.cell = actual_cell + symmetric_change
+    else:
+        change_to_cell = torch.zeros_like(structure.cell)
+
+    # use the autograd machinery to auto-magically calculate forces and stress
+    # from the energy
+    with require_grad(structure._positions), require_grad(change_to_cell):
+        energy = pes(structure)
+
+        if Keys.ENERGY in property_labels:
+            predictions[property_labels[Keys.ENERGY]] = energy
+
+        if Keys.FORCES in property_labels:
+            dE_dR = differentiate(energy, structure._positions)
+            predictions[property_labels[Keys.FORCES]] = -dE_dR
+
+        if Keys.STRESS in property_labels:
+            stress = differentiate(energy, change_to_cell)
+            predictions[property_labels[Keys.STRESS]] = stress
+
+    return predictions

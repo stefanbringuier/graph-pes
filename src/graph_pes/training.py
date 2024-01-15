@@ -4,86 +4,109 @@ from pathlib import Path
 
 import pytorch_lightning as pl
 import torch
-from graph_pes.core import GraphPESModel, energy_and_forces, get_predictions
-from graph_pes.data import AtomicGraph
-from graph_pes.data.batching import AtomicDataLoader, AtomicGraphBatch
-from graph_pes.loss import RMSE, Loss
-from graph_pes.transform import PerSpeciesScale, PerSpeciesShift, Scale
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
 from torch import optim
+
+from .core import GraphPESModel, get_predictions
+from .data import AtomicGraph
+from .data.batching import AtomicDataLoader, AtomicGraphBatch
+from .loss import RMSE, Loss, WeightedLoss
+from .transform import Chain, PerAtomScale, PerAtomShift, Scale
+from .util import Keys
 
 
 def train_model(
     model: GraphPESModel,
-    train_data: list[AtomicGraph] | AtomicDataLoader,
-    val_data: list[AtomicGraph] | AtomicDataLoader | None = None,
+    train_data: list[AtomicGraph],
+    val_data: list[AtomicGraph] | None = None,
     optimizer: optim.Optimizer | None = None,
-    lr: float | None = None,
-    losses: list[Loss] | None = None,
+    loss: WeightedLoss | Loss | None = None,
+    property_labels: dict[Keys, str] | None = None,
     *,
-    # optional data loader argument
-    batch_size: int | None = None,
-    # transform fitting
-    fit_model_transform: bool = True,
-    fit_loss_transforms: bool = True,
+    batch_size: int = 32,
+    pre_fit_model: bool = True,
     # pytorch lightning
-    dir: str | None = None,
-    name: str | None = None,
-    early_stopping: bool = True,
-    lr_decay: float | None = None,
     **trainer_kwargs,
 ):
-    # ensure that the data are converted to AtomicDataLoaders
-    train_loader = to_data_loader(train_data, batch_size, shuffle=True)
-    data_loaders = [train_loader]
+    # TODO check using a strict flag that all the data have the same keys
+    batch = AtomicGraphBatch.from_graphs(train_data)
 
-    if val_data is not None:
-        val_loader = to_data_loader(val_data, batch_size, shuffle=False)
-        data_loaders.append(val_loader)
+    # check that the property keys are valid
+    if property_labels is None:
+        property_labels = get_existing_keys(batch)
+        if not property_labels:
+            expected = [key.value for key in Keys.__members__.values()]
+            raise ValueError(
+                "No property_keys were provided, and none were found in "
+                f"the data. Expected at least one of: {expected}"
+            )
+    else:
+        missing = {
+            label for label in property_labels.values() if label not in batch
+        }
+        if missing:
+            raise ValueError(
+                f"Input data is missing the following keys that were "
+                f"requested: {missing}"
+            )
+
+    expected_shapes = {
+        Keys.ENERGY: (batch.n_structures,),
+        Keys.FORCES: (batch.n_atoms, 3),
+        Keys.STRESS: (batch.n_structures, 3, 3),
+    }
+    for key, label in property_labels.items():
+        if batch[label].shape != expected_shapes[key]:
+            raise ValueError(
+                f"Expected {label} to have shape {expected_shapes[key]}, "
+                f"but found {batch[label].shape}"
+            )
+    if Keys.STRESS in property_labels and not batch.has_cell:
+        raise ValueError("Can't train on stress without cell information.")
+
+    # create the data loaders
+    train_loader = AtomicDataLoader(train_data, batch_size, shuffle=True)
+    val_loader = (
+        AtomicDataLoader(val_data, batch_size, shuffle=False)
+        if val_data is not None
+        else None
+    )
 
     # deal with fitting transforms
-    # convert the train data into a single batch
-    batch = AtomicGraphBatch.from_graphs(train_loader.dataset)  # type: ignore
-    if fit_model_transform:
-        for transform in model._energy_transforms.values():
-            transform.fit_to_target(batch.labels["energy"], batch)  # type: ignore
+    if pre_fit_model:
+        model.pre_fit(batch)
 
-    actual_losses: list[Loss] = losses or default_loss_fns()
-    if fit_loss_transforms:
-        for loss in actual_losses:
-            loss.fit_transform(batch)
+    actual_loss = get_loss(loss, property_labels)
+    actual_loss.fit_transform(batch)
 
     # deal with the optimizer
     if optimizer is None:
-        if lr is None:
-            lr = 3e-4
-        optimizer = optim.Adam(model.parameters(), lr=lr)
-
-    if lr_decay is not None:
-        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, lr_decay)
-        optimizer = {"optimizer": optimizer, "lr_scheduler": scheduler}
+        optimizer = optim.Adam(model.parameters())
 
     # create the task (a pytorch lightning module)
-    task = LearnThePES(
-        model=model,
-        optimizer=optimizer,
-        losses=actual_losses,
-    )
+    task = LearnThePES(model, optimizer, actual_loss, property_labels)
 
     # create the trainer
-    kwargs = default_trainer_kwargs(early_stopping, dir, name)
+    kwargs = default_trainer_kwargs()
     kwargs.update(trainer_kwargs)
     trainer = pl.Trainer(**kwargs)
 
     # train
-    trainer.fit(task, *data_loaders)  # type: ignore
+    trainer.fit(task, train_loader, val_loader)
 
-    # load the best model
-    # try:
+    # load the best weights
     return task.load_best_weights(model, trainer)
-    # except:
-    # return model
+
+
+def get_existing_keys(batch: AtomicGraphBatch) -> dict[Keys, str]:
+    # return {
+    #     value: key for key, value in Keys.__members__.items() if key in batch
+    # }
+    return {
+        key: key.value
+        for key in Keys.__members__.values()
+        if key.value in batch
+    }
 
 
 class LearnThePES(pl.LightningModule):
@@ -91,12 +114,14 @@ class LearnThePES(pl.LightningModule):
         self,
         model: GraphPESModel,
         optimizer: optim.Optimizer,
-        losses: list[Loss],
+        loss: WeightedLoss,
+        property_labels: dict[Keys, str],
     ):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
-        self.losses = losses or default_loss_fns()
+        self.loss = loss
+        self.property_labels = property_labels
 
     def forward(self, graphs: AtomicGraphBatch):
         return self.model(graphs)
@@ -106,8 +131,6 @@ class LearnThePES(pl.LightningModule):
         Get (and log) the losses for a training/validation step.
         """
 
-        # avoid long, repeated calls to self.log with broadly the same
-        # arguments by defining:
         def log(name, value, verbose=True):
             return self.log(
                 f"{prefix}_{name}",
@@ -119,19 +142,19 @@ class LearnThePES(pl.LightningModule):
             )
 
         # generate prediction:
-        predictions = get_predictions(self.model, graph)._asdict()
+        predictions = get_predictions(self.model, graph, self.property_labels)
 
         # compute the losses
         total_loss = torch.scalar_tensor(0.0, device=self.device)
 
-        for loss in self.losses:
+        for loss, weight in zip(self.loss.losses, self.loss.weights):
             value = loss(predictions, graph)
             # log the unweighted components of the loss
             log(f"{loss.property_key}_{loss.name}", value)
             # but weight them when computing the total loss
-            total_loss = total_loss + loss.weight * value
+            total_loss = total_loss + weight * value
 
-            # log the raw values only during validation (as extra, harmless info)
+            # log the raw values only during validation
             if prefix == "val":
                 raw_value = loss.raw(predictions, graph)
                 log(f"{loss.property_key}_raw_{loss.name}", raw_value)
@@ -151,7 +174,7 @@ class LearnThePES(pl.LightningModule):
     def on_validation_model_eval(self, *args, **kwargs):
         super().on_validation_model_eval(*args, **kwargs)
         # we override the defaults to turn on gradient tracking for the
-        # validation step since we compute the forces using autograd
+        # validation step since we (might) compute the forces using autograd
         torch.set_grad_enabled(True)
 
     @classmethod
@@ -166,7 +189,7 @@ class LearnThePES(pl.LightningModule):
                 "Either trainer or checkpoint_path must be provided"
             )
         if checkpoint_path is None:
-            path = trainer.checkpoint_callback.best_model_path
+            path = trainer.checkpoint_callback.best_model_path  # type: ignore
         else:
             path = Path(checkpoint_path)
         checkpoint = torch.load(path)
@@ -179,63 +202,52 @@ class LearnThePES(pl.LightningModule):
         return model
 
 
-def default_loss_fns() -> list[Loss]:
-    # TODO should defailt to whatever is in the inputs
-    return [
-        Loss(
-            "energy",
-            metric=RMSE(),
-            transforms=[PerSpeciesShift(), PerSpeciesScale()],
-        ),
-        Loss(
-            "forces",
-            metric=RMSE(),
-            transform=PerSpeciesScale(),
-        ),
-        # Loss(
-        #     "stress",
-        #     metric=RMSE(),
-        #     transform=Scale(),
-        # ),
-    ]
+def get_loss(
+    loss: WeightedLoss | Loss | None, property_labels: dict[Keys, str]
+) -> WeightedLoss:
+    if loss is None:
+        default_transforms = {
+            Keys.ENERGY: Chain([PerAtomScale(), PerAtomShift()]),
+            Keys.FORCES: PerAtomScale(),
+            Keys.STRESS: Scale(),
+        }
+        default_weights = {
+            Keys.ENERGY: 1.0,
+            Keys.FORCES: 1.0,
+            Keys.STRESS: 1.0,
+        }
+        return WeightedLoss(
+            [
+                Loss(
+                    label,
+                    metric=RMSE(),
+                    transform=default_transforms[key],
+                )
+                for key, label in property_labels.items()
+            ],
+            [default_weights[key] for key in property_labels],
+        )
+    elif isinstance(loss, Loss):
+        return WeightedLoss([loss], [1.0])
+    else:
+        return loss
 
 
-def default_trainer_kwargs(early_stopping, dir, name) -> dict:
+def default_trainer_kwargs() -> dict:
     es_callback = EarlyStopping(
         monitor="val_total_loss",
         patience=75,
         mode="min",
         min_delta=1e-3,
     )
-    chekcpoint_callback = ModelCheckpoint(
+    checkpoint_callback = ModelCheckpoint(
         monitor="val_total_loss",
         mode="min",
         save_top_k=1,
         filename="{epoch}-{val_total_loss:.4f}",
     )
-    callbacks = (
-        [es_callback, chekcpoint_callback]
-        if early_stopping
-        else [chekcpoint_callback]
-    )
     return {
         "accelerator": "auto",
         "max_epochs": 100,
-        "callbacks": callbacks,
-        "logger": TensorBoardLogger(".", name=dir, version=name),
+        "callbacks": [es_callback, checkpoint_callback],
     }
-
-
-def to_data_loader(
-    data: AtomicDataLoader | list[AtomicGraph],
-    batch_size: int | None = None,
-    **kwargs,
-):
-    if not isinstance(data, AtomicDataLoader):
-        batch_size = batch_size or 32
-        return AtomicDataLoader(data, batch_size=batch_size, **kwargs)
-
-    if batch_size is not None:
-        data.batch_size = batch_size
-
-    return data

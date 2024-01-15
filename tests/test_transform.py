@@ -19,10 +19,10 @@ def test_identity():
 
 
 def test_is_local_property():
-    energy = graph.get_labels("energy")
+    energy = graph["energy"]
     assert not graph.is_local_property(energy)
 
-    forces = graph.get_labels("forces")
+    forces = graph["forces"]
     assert graph.is_local_property(forces)
 
 
@@ -47,7 +47,7 @@ def test_per_atom_transforms():
 
     # fit shift to the total energies
     shift = PerAtomShift(trainable=False)
-    total_energies = batch.get_labels("energy")
+    total_energies = batch["energy"]
     shift.fit(total_energies, batch)
 
     assert torch.allclose(
@@ -65,7 +65,7 @@ def test_per_atom_transforms():
 
     # fit shift to the local energies
     shift = PerAtomShift(trainable=False)
-    local_energies = batch.get_labels("local_prop")
+    local_energies = batch["local_prop"]
 
     shift.fit(local_energies, batch)
 

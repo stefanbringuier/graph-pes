@@ -362,7 +362,10 @@ class ConstrainedParameter(nn.Module, ABC):
         return torch.sqrt(self.constrained_value)
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.constrained_value})"
+        t = self.constrained_value
+        if t.numel() == 1:
+            return f"{self.__class__.__name__}({t.item():.4f})"
+        return f"{self.__class__.__name__}({t})"
 
     def __neg__(self):
         return self._do_math(0, torch.sub, rev=True)

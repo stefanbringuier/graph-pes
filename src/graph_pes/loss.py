@@ -75,15 +75,11 @@ class Loss(nn.Module):
         graphs
             The graphs containing the labels.
         """
-        P_hat = predictions[self.property_key]
-        P_true = graphs.get_labels(self.property_key)
 
-        # apply transforms
-        P_hat_prime = self.transform(P_hat, graphs)
-        P_true_prime = self.transform(P_true, graphs)
-
-        # compute loss
-        return self.metric(P_hat_prime, P_true_prime)
+        return self.metric(
+            self.transform(predictions[self.property_key], graphs),
+            self.transform(graphs[self.property_key], graphs),
+        )
 
     def raw(
         self,
@@ -103,7 +99,7 @@ class Loss(nn.Module):
 
         return self.metric(
             predictions[self.property_key],
-            graphs.get_labels(self.property_key),
+            graphs[self.property_key],
         )
 
     def fit_transform(self, graphs: AtomicGraphBatch):
@@ -116,7 +112,7 @@ class Loss(nn.Module):
             The graphs containing the labels.
         """
 
-        self.transform.fit(graphs.get_labels(self.property_key), graphs)
+        self.transform.fit(graphs[self.property_key], graphs)
 
     @property
     def name(self) -> str:
@@ -188,6 +184,10 @@ class WeightedLoss(torch.nn.Module):
         return WeightedLoss(
             self.losses + other.losses, self.weights + other.weights
         )
+
+    def fit_transform(self, graphs: AtomicGraphBatch):
+        for loss in self.losses:
+            loss.fit_transform(graphs)
 
 
 class RMSE(torch.nn.MSELoss):

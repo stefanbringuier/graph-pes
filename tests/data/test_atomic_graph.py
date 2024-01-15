@@ -114,11 +114,11 @@ def test_get_labels():
     atoms.arrays["forces"] = np.zeros((2, 3))
     graph = convert_to_atomic_graph(atoms, cutoff=1.0)
 
-    forces = graph.get_labels("forces")
+    forces = graph["forces"]
     assert forces.shape == (2, 3)
 
-    energy = graph.get_labels("energy")
+    energy = graph["energy"]
     assert energy.item() == -1.0
 
     with pytest.raises(KeyError):
-        graph.get_labels("missing")
+        graph["missing"]
