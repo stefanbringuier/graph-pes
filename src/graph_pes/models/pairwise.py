@@ -26,12 +26,13 @@ class PairPotential(GraphPESModel, ABC):
 
     where :math:`r_{ij}` is the distance between atoms :math:`i` and :math:`j`,
     and :math:`Z_i` and :math:`Z_j` are their atomic numbers.
-
     This can be recast as a sum over local energy contributions,
     :math:`E = \sum_i \varepsilon_i`, according to:
 
     .. math::
         \varepsilon_i = \frac{1}{2} \sum_j V(r_{ij}, Z_i, Z_j)
+
+    Subclasses should implement :meth:`interaction`.
     """
 
     @abstractmethod

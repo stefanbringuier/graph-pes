@@ -2,41 +2,42 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from math import pi as π
-from typing import Any, Callable
+from typing import Callable
 
 import torch
-from torch import nn
+from jaxtyping import Float
+from torch import Tensor, nn
 
 
-class DistanceExpansion(nn.Module, ABC):  # TODO- make protocol?
+class DistanceExpansion(nn.Module, ABC):
     r"""
-    Base class for an expansion function, :math:`\phi(r)` such that:
+    Abstract base class for an expansion function, :math:`\phi(r) :
+    [0, r_{\text{cutoff}}] \rightarrow \mathbb{R}^{n_\text{features}}`.
 
-    .. math::
-        r \in \mathbb{R}^1 \quad \rightarrow \quad \phi(r) \in
-        \mathbb{R}^{n_\text{features}}
-
-    or, for a batch of distances:
-
-    .. math::
-        r \in \mathbb{R}^{n_\text{batch} \times 1} \quad \rightarrow \quad
-        \phi(r) \in \mathbb{R}^{n_\text{batch} \times n_\text{features}}
+    Subclasses should implement :meth:`expand`, which must also work over
+    batches: :math:`\phi(r) : [0, r_{\text{cutoff}}]^{n_\text{batch} \times 1}
+    \rightarrow \mathbb{R}^{n_\text{batch} \times n_\text{features}}`.
 
     Parameters
     ----------
-    n_features : int
+    n_features
         The number of features to expand into.
-    cutoff : float
+    cutoff
         The cutoff radius.
+    trainable
+        Whether the expansion parameters are trainable.
     """
 
-    def __init__(self, n_features: int, cutoff: float):
+    def __init__(self, n_features: int, cutoff: float, trainable: bool = True):
         super().__init__()
         self.n_features = n_features
         self.cutoff = cutoff
+        self.trainable = trainable
 
     @abstractmethod
-    def expand(self, r: torch.Tensor) -> torch.Tensor:
+    def expand(
+        self, r: Float[Tensor, "... 1"]
+    ) -> Float[Tensor, "... n_features"]:
         r"""
         Perform the expansion.
 
@@ -45,26 +46,18 @@ class DistanceExpansion(nn.Module, ABC):  # TODO- make protocol?
         r : torch.Tensor
             The distances to expand. Guaranteed to have shape :math:`(..., 1)`.
         """
-        pass
 
-    def forward(self, r: torch.Tensor) -> torch.Tensor:
-        r"""
-        Ensure that the input has the correct shape, :math:`(..., 1)`,
-        and then perform the expansion.
-        """
+    def forward(
+        self, r: Float[Tensor, "..."]
+    ) -> Float[Tensor, "... n_features"]:
         if r.shape[-1] != 1:
             r = r.unsqueeze(-1)
         return self.expand(r)
 
-    def properties(self) -> dict[str, Any]:
-        return {}
-
     def __repr__(self) -> str:
-        _kwargs_rep = ", ".join(
-            f"{k}={v}" for k, v in self.properties().items()
-        )
         return (
-            f"{self.__class__.__name__}(1 → {self.n_features}, {_kwargs_rep})"
+            f"{self.__class__.__name__}(n_features={self.n_features}, "
+            f"cutoff={self.cutoff}, trainable={self.trainable})"
         )
 
 
@@ -73,35 +66,42 @@ class Bessel(DistanceExpansion):
     The Bessel expansion:
 
     .. math::
-        \phi_{n}(r) = \frac{\sin(\pi n r / r_\text{cut})}{r} \quad n
+        \phi_{n}(r) = \sqrt{\frac{2}{r_{\text{cut}}}}
+        \frac{\sin(n \pi \frac{r}{r_\text{cut}})}{r} \quad n
         \in [1, n_\text{features}]
 
     where :math:`r_\text{cut}` is the cutoff radius and :math:`n` is the order
-    of the Bessel function.
+    of the Bessel function, as introduced in `Directional Message Passing for
+    Molecular Graphs <http://arxiv.org/abs/2003.03123>`_.
 
     Parameters
     ----------
-    n_features : int
+    n_features
         The number of features to expand into.
-    cutoff : float
+    cutoff
         The cutoff radius.
+    trainable
+        Whether the expansion parameters are trainable.
+
+    Attributes
+    ----------
+    frequencies
+        :math:`n`, the frequencies of the Bessel functions.
     """
 
-    def __init__(self, n_features: int, cutoff: float):
+    def __init__(self, n_features: int, cutoff: float, trainable: bool = True):
         super().__init__(n_features, cutoff)
-
-        self.register_buffer(
-            "frequencies", torch.arange(1, n_features + 1) * π / cutoff
+        self.frequencies = nn.Parameter(
+            torch.arange(1, n_features + 1) * π / cutoff,
+            requires_grad=trainable,
         )
+        self.pre_factor = torch.sqrt(torch.tensor(2 / cutoff))
 
     def expand(self, r: torch.Tensor) -> torch.Tensor:
-        numerator = torch.sin(r * self.frequencies)
+        numerator = self.pre_factor * torch.sin(r * self.frequencies)
         # we avoid dividing by zero by replacing any zero elements with 1
         denominator = torch.where(r != 0, torch.tensor(1.0), r)
         return numerator / denominator
-
-    def properties(self) -> dict[str, Any]:
-        return {"cutoff": self.cutoff}
 
 
 class GaussianSmearing(DistanceExpansion):
@@ -110,35 +110,49 @@ class GaussianSmearing(DistanceExpansion):
 
     .. math::
         \phi_{n}(r) = \exp\left(-\frac{(r - \mu_n)^2}{2\sigma^2}\right)
+        \quad n \in [1, n_\text{features}]
 
-    where :math:`\mu_n` is the center of the :math:`n`th Gaussian
-    and :math:`\sigma` is the width of the Gaussians.
+    where :math:`\mu_n` is the center of the :math:`n`'th Gaussian
+    and :math:`\sigma` is a width shared across all the Gaussians.
 
     Parameters
     ----------
-    n_features : int
+    n_features
         The number of features to expand into.
-    cutoff : float
+    cutoff
         The cutoff radius.
+    trainable
+        Whether the expansion parameters are trainable.
+
+    Attributes
+    ----------
+    centers
+        :math:`\mu_n`, the centers of the Gaussians.
+    coef
+        :math:`\frac{1}{2\sigma^2}`, the coefficient of the exponent.
     """
 
     def __init__(
         self,
         n_features: int,
         cutoff: float,
+        trainable: bool = True,
     ):
-        super().__init__(n_features, cutoff)
+        super().__init__(n_features, cutoff, trainable)
 
         sigma = cutoff / n_features
-        self.coef = -1 / (2 * sigma**2)
-        self.register_buffer("centers", torch.linspace(0, cutoff, n_features))
+        self.coef = nn.Parameter(
+            torch.tensor(-1 / (2 * sigma**2)),
+            requires_grad=trainable,
+        )
+        self.centers = nn.Parameter(
+            torch.linspace(0, cutoff, n_features),
+            requires_grad=trainable,
+        )
 
     def expand(self, r: torch.Tensor) -> torch.Tensor:
         offsets = r - self.centers
         return torch.exp(self.coef * offsets**2)
-
-    def properties(self) -> dict[str, Any]:
-        return {"cutoff": self.cutoff}
 
 
 Envelope = Callable[[torch.Tensor], torch.Tensor]

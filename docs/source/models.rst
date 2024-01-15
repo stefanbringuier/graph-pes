@@ -12,12 +12,7 @@ All models implemented in ``graph_pes`` are subclasses of
    :members: predict_local_energies, __add__
 
 
-Pair Potentials
-===============
+.. toctree::
 
-Pair potential models can be recast as local-energy models acting on graphs.
-
-.. autoclass :: graph_pes.models.pairwise.PairPotential
-   :members: interaction
-
-.. autoclass :: graph_pes.models.pairwise.LennardJones
+   models/pairwise
+   models/distances

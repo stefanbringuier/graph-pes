@@ -11,9 +11,9 @@ An Overview
 
 Training a :class:`GraphPESModel <graph_pes.core.GraphPESModel>` involves three preparatory steps:
 
-1. Define and initialize the model (see :ref:`models`)
-2. Loading the training data (see :ref:`loading atomic graphs`)
-3. Defining the loss function (see :ref:`loss functions`)
+1. Define and initialize the model (see models)
+2. Loading the training data (see loading atomic graphs)
+3. Defining the loss function (see loss functions)
 
 Within the graph-pes framework, this can be as simple as:
 
@@ -47,7 +47,7 @@ Roughly, the following steps are taken:
 
 .. literalinclude:: ./training_setup.py
     :language: python
-    :lines: 24-35
+    :lines: 24-30
 
 ---
 
