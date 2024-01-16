@@ -42,6 +42,9 @@ class GraphPESModel(nn.Module, ABC):
         of parameters, and automated save/load functionality.
     """
 
+    # TODO: fix this for the case of an isolated atom, either by itself
+    # or within a batch: perhaps that should go in sum_per_structure?
+    # or maybe default to a local scale followed by a global peratomshift?
     @abstractmethod
     def predict_local_energies(
         self, graph: AtomicGraph | AtomicGraphBatch

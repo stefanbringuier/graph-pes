@@ -1,15 +1,34 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from functools import wraps
 
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from ase import Atoms
 from matplotlib.ticker import MaxNLocator
 
 from .core import GraphPESModel, get_predictions
-from .data.atomic_graph import AtomicGraph
+from .data.atomic_graph import AtomicGraph, convert_to_atomic_graphs
 from .data.batching import AtomicGraphBatch
 from .transform import Identity, Transform
 from .util import Keys
+
+_my_style = {
+    "figure.figsize": (3, 3),
+    "axes.spines.right": False,
+    "axes.spines.top": False,
+}
+
+
+@contextmanager
+def nice_style():
+    """
+    Context manager to use my home-made plt style within a context
+    """
+    with plt.rc_context(_my_style):
+        yield
 
 
 def my_style(func):
@@ -17,15 +36,9 @@ def my_style(func):
     Decorator to use my home-made plt style within a function
     """
 
-    style = {
-        "figure.figsize": (3, 3),
-        "axes.spines.right": False,
-        "axes.spines.top": False,
-    }
-
     @wraps(func)
     def wrapper(*args, **kwargs):
-        with plt.rc_context(style):
+        with plt.rc_context(_my_style):
             return func(*args, **kwargs)
 
     return wrapper
@@ -148,6 +161,93 @@ def parity_plot(
     y0, y1 = ax.get_ylim()
     ax.set_xlim(min(x0, y0), max(x1, y1))
     ax.set_ylim(min(x0, y0), max(x1, y1))
+    move_axes(ax)
+
+    # 5 ticks each
+    ax.xaxis.set_major_locator(MaxNLocator(5))
+    ax.yaxis.set_major_locator(MaxNLocator(5))
+
+
+@my_style
+def dimer_curve(
+    model: GraphPESModel,
+    system: str,
+    units: str | None = None,
+    set_to_zero: bool = True,
+    rmin: float = 0.9,
+    rmax: float = 5.0,
+    ax: plt.Axes | None = None,  # type: ignore
+    **plot_kwargs,
+):
+    r"""
+    A nicely formatted dimer curve plot for the given :code:`system`.
+
+    Parameters
+    ----------
+    model
+        The model to for generating predictions.
+    system
+        The dimer system. Should be one of: a single element, e.g. :code:`"Cu"`,
+        or a pair of elements, e.g. :code:`"CuO"`.
+    units
+        The units of the energy, for labelling the axes. If not provided, no
+        units are used.
+    set_to_zero
+        Whether to set the energy of the dimer at :code:`rmax` to be zero.
+    rmin
+        The minimum seperation to consider.
+    rmax
+        The maximum seperation to consider.
+    ax
+        The axes to plot on. If not provided, the current axes are used.
+    plot_kwargs
+        Keyword arguments to pass to :code:`plt.plot`.
+
+    Examples
+    --------
+    See :doc:`this example notebook <notebooks/example>`:
+
+    .. code-block:: python
+
+        dimer_curve(model, "Cu", units="eV", label="Final", c="C1")
+
+    .. image:: notebooks/Cu-LJ-dimer.svg
+        :align: center
+    """
+
+    trial_atoms = Atoms(system)
+    if len(trial_atoms) != 2:
+        system = system + "2"
+
+    rs = np.linspace(rmin, rmax, 200)
+    atoms = [Atoms(system, positions=[[0, 0, 0], [r, 0, 0]]) for r in rs]
+    graphs = convert_to_atomic_graphs(atoms, cutoff=rmax + 0.1)
+    batch = AtomicGraphBatch.from_graphs(graphs)
+
+    with torch.no_grad():
+        energy = model(batch).numpy()
+    if set_to_zero:
+        energy -= energy[-1]
+
+    ax: plt.Axes = ax or plt.gca()
+
+    default_kwargs = dict(lw=1, c="k")
+    plot_kwargs = {**default_kwargs, **plot_kwargs}
+    ax.plot(rs, energy, **plot_kwargs)
+
+    limiting_energy = energy[-1]
+    if (energy[:-1] < limiting_energy).any():
+        well_depth = limiting_energy - energy[:-1].min()
+    else:
+        well_depth = 0.1
+    bottom = limiting_energy - well_depth * 1.1
+    top = limiting_energy + well_depth * 1.1
+    ax.set_ylim(bottom, top)
+    ax.set_xlabel("r (Å)")
+    ax.set_ylabel(f"Dimer Energy ({units})" if units else "Dimer Energy")
+
+    first_in_view = np.where(energy < top)[0][0]
+    ax.set_xlim(rs[first_in_view].item() - 0.2, rs[-1] + 0.2)
     move_axes(ax)
 
     # 5 ticks each
