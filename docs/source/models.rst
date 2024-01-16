@@ -27,5 +27,5 @@ Helper Classes and Functions
    :maxdepth: 2
 
    models/distances
-   nn
+   models/nn
 

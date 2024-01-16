@@ -8,8 +8,6 @@
    models
    data
    training
-   losses
-   transforms
    examples
   
 ########

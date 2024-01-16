@@ -51,4 +51,8 @@ Roughly, the following steps are taken:
 
 ---
 
-.. autofunction:: graph_pes.training.train_model
+.. toctree::
+    :maxdepth: 1
+
+    training/losses
+    training/train_model
