@@ -8,7 +8,9 @@
    models
    data
    training
+   analysis
    examples
+
   
 ########
 GraphPES

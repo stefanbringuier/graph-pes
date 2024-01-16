@@ -189,7 +189,7 @@ class Ensemble(GraphPESModel):
 # when in eval mode
 def get_predictions(
     pes: GraphPESModel,
-    structure: AtomicGraph,
+    structure: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
     property_labels: dict[Keys, str] | None = None,
 ) -> dict[str, torch.Tensor]:
     """
@@ -215,6 +215,9 @@ def get_predictions(
     >>> # TODO
 
     """
+
+    if isinstance(structure, list):
+        structure = AtomicGraphBatch.from_graphs(structure)
 
     if property_labels is None:
         property_labels = {

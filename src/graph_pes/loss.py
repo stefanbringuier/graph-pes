@@ -18,6 +18,7 @@ class Loss(nn.Module):
     and that the resulting gradients and parameter updates are well-behaved.
 
     :class:`Loss`'s in `graph-pes` are thus lightweight wrappers around:
+
     * an (optional) pre-transform, :math:`T`
     * a loss metric, :math:`M`.
 

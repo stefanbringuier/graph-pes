@@ -15,6 +15,10 @@ Available Transforms
    :members:
 
 
+Useful Other Transforms
+=======================
+
+.. autoclass :: graph_pes.transform.DividePerAtom()
 .. autoclass :: graph_pes.transform.Chain
 .. autoclass :: graph_pes.transform.Identity()
 

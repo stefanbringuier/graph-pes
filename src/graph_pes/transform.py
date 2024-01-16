@@ -470,3 +470,32 @@ class Scale(Transform):
     def fit(self, x: Tensor, graphs: AtomicGraphBatch) -> Transform:
         self.scale.data = x.var()
         return self
+
+
+class DividePerAtom(Transform):
+    """
+    A convenience transform for dividing a property by the number of atoms
+    in the structure.
+    """
+
+    def __init__(self):
+        super().__init__(trainable=False)
+
+    def fit(self, x: Tensor, graphs: AtomicGraphBatch) -> Transform:
+        return self
+
+    def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
+        structure_sizes = (
+            graph.structure_sizes
+            if isinstance(graph, AtomicGraphBatch)
+            else graph.n_atoms
+        )
+        return x / structure_sizes
+
+    def inverse(self, x: Tensor, graph: AtomicGraph) -> Tensor:
+        structure_sizes = (
+            graph.structure_sizes
+            if isinstance(graph, AtomicGraphBatch)
+            else graph.n_atoms
+        )
+        return x * structure_sizes
