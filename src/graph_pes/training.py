@@ -6,7 +6,8 @@ from typing import Callable
 
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 
 from .core import GraphPESModel, get_predictions
 from .data import AtomicGraph
@@ -20,7 +21,8 @@ def train_model(
     model: GraphPESModel,
     train_data: list[AtomicGraph],
     val_data: list[AtomicGraph] | None = None,
-    optimizer: Callable[[], torch.optim.Optimizer] | None = None,
+    optimizer: Callable[[], torch.optim.Optimizer | OptimizerLRSchedulerConfig]
+    | None = None,
     loss: WeightedLoss | Loss | None = None,
     property_labels: dict[Keys, str] | None = None,
     *,
@@ -130,7 +132,7 @@ class LearnThePES(pl.LightningModule):
     def __init__(
         self,
         model: GraphPESModel,
-        optimizer: torch.optim.Optimizer,
+        optimizer: torch.optim.Optimizer | OptimizerLRSchedulerConfig,
         loss: WeightedLoss,
         property_labels: dict[Keys, str],
     ):
@@ -251,33 +253,19 @@ def get_loss(
 
 
 def default_trainer_kwargs() -> dict:
-    es_callback = EarlyStopping(
-        monitor="val_total_loss",
-        patience=75,
-        mode="min",
-        min_delta=1e-3,
-    )
-    checkpoint_callback = ModelCheckpoint(
-        monitor="val_total_loss",
-        mode="min",
-        save_top_k=1,
-        filename="{epoch}-{val_total_loss:.4f}",
-    )
     return {
         "accelerator": "auto",
         "max_epochs": 100,
         "enable_model_summary": False,
-        "callbacks": [es_callback, checkpoint_callback],
+        "callbacks": [LearningRateMonitor(logging_interval="epoch")],
     }
-
-
-# disable verbose logging from pytorch lightning
 
 
 def device_info_filter(record):
     return "PU available: " not in record.getMessage()
 
 
+# disable verbose logging from pytorch lightning
 logging.getLogger("pytorch_lightning.utilities.rank_zero").addFilter(
     device_info_filter
 )

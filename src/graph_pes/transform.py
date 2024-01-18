@@ -157,6 +157,11 @@ class Chain(Transform):
             x = transform(x, graphs)
         return self
 
+    def __repr__(self):
+        return nn.ModuleList.__repr__(self.transforms).replace(  # type: ignore
+            self.transforms.__class__.__name__, self.__class__.__name__
+        )
+
 
 class PerAtomShift(Transform):
     """
@@ -456,9 +461,11 @@ def PerAtomStandardScaler(trainable: bool = True) -> Transform:
 
 
 class Scale(Transform):
-    def __init__(self, trainable: bool = True, scale: float = 1.0):
+    def __init__(self, trainable: bool = True, scale: float | int = 1.0):
         super().__init__(trainable=trainable)
-        self.scale = nn.Parameter(torch.tensor(scale), requires_grad=trainable)
+        self.scale = nn.Parameter(
+            torch.tensor(float(scale)), requires_grad=trainable
+        )
 
     def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         return x * self.scale**0.5

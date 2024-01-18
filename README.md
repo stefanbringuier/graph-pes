@@ -9,6 +9,7 @@ Batteries are included:
 - **easy construction of PES models** : implement `predict_local_energies` , easy to save, load and share
 - **useful primitives** : PerSpeciesParameter
 - **easy training** : forces, energies, well conditioned losses etc.
+- **analysis** : easy to plot, analyse and compare models
 
 ## Installation
 
@@ -19,41 +20,21 @@ pip install graph-pes
 ## Minimal example
 
 ```python
-from graph_pes import GraphPESModel
-from graph_pes.data import convert_to_graphs, AtomicGraph
-from graph_pes.training import train_model
 from ase.io import read
-import torch
+from graph_pes.data import convert_to_atomic_graphs
+from graph_pes.models.pairwise import LennardJones
+from graph_pes.training import train_model
 
-# 1. define a model
-class LennardJones(GraphPES):
-    def __init__(self):
-        super().__init__()
-        self.sigma = nn.Parameter(torch.tensor(1.0))
-        self.epsilon = nn.Parameter(torch.tensor(1.0))
+# 1. load some structures
+structures = read("structures.xyz", index=":10")
+assert "energy" in structures[0].info
 
-    def predict_local_energies(self, graph: AtomicGraph) -> torch.Tensor:
-        central_atoms, neighbours = graph.neighbour_index
-        distances = graph.neighbour_distances
-        
-        # calculate pairwise interactions
-        x = (self.sigma / distances)**6
-        pairwise_interaction = 4 * self.epsilon * (x**2 - x)
+# 2. convert to graphs (e.g. using a radius cutoff)
+graphs = convert_to_atomic_graphs(structures, cutoff=5.0)
 
-        # sum over neighbours to get per-atom contributions
-        return torch.scatter_add(
-            torch.zeros(graph.n_atoms, device=graph.device),
-            central_atoms,
-            pairwise_interaction
-        )
-
-# 2. load some structures
-structures = read('structures.xyz', index=':10')
-
-# 3. convert to graphs (e.g. using a radius cutoff)
-graphs = convert_to_graphs(structures, cutoff=5.0)
-
-# 4. train the model
+# 3. define the model
 model = LennardJones()
+
+# 4. train
 train_model(model, graphs, max_epochs=100)
 ```

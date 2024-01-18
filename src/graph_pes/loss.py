@@ -186,9 +186,28 @@ class WeightedLoss(torch.nn.Module):
             self.losses + other.losses, self.weights + other.weights
         )
 
+    def __mul__(self, other: float) -> WeightedLoss:
+        return WeightedLoss(self.losses, [w * other for w in self.weights])
+
+    def __rmul__(self, other: float) -> WeightedLoss:
+        return WeightedLoss(self.losses, [w * other for w in self.weights])
+
+    def __true_div__(self, other: float) -> WeightedLoss:
+        return WeightedLoss(self.losses, [w / other for w in self.weights])
+
     def fit_transform(self, graphs: AtomicGraphBatch):
         for loss in self.losses:
             loss.fit_transform(graphs)
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        graphs: AtomicGraphBatch,
+    ) -> torch.Tensor:
+        return sum(
+            w * loss(predictions, graphs)
+            for w, loss in zip(self.weights, self.losses)
+        )  # type: ignore
 
 
 class RMSE(torch.nn.MSELoss):

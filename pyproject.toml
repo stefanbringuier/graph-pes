@@ -52,6 +52,7 @@ push = false
 [tool.bumpver.file_patterns]
 "pyproject.toml" = ['current_version = "{version}"', 'version = "{version}"']
 "src/graph_pes/__init__.py" = ["{version}"]
+"docs/source/conf.py" = ['release = "{version}"']
 
 [tool.ruff]
 line-length = 80
