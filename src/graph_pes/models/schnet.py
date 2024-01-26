@@ -32,6 +32,20 @@ class CFConv(MessagePassing):
     expands the radial distance :math:`r_{ij}` into a set of features
     that match the dimensionality of the node features :math:`x_j`.
 
+    Example
+    -------
+    .. code::
+
+        from graph_pes.models.distances import GaussianSmearing
+        from graph_pes.nn import MLP
+        from torch import nn
+
+        filter_generator = nn.Sequential(
+            GaussianSmearing(8, 5.0),
+            MLP([8, 16, 16, 8]),
+        )
+        cfconv = CFConv(filter_generator)
+
     Parameters
     ----------
     filter_generator : nn.Module
@@ -56,8 +70,8 @@ class CFConv(MessagePassing):
         neighbour_distances : torch.Tensor
             The distances to the neighbors.
         """
-        filters = self.filter_generator(neighbour_distances)
-        return x_j * filters
+
+        return x_j * self.filter_generator(neighbour_distances)
 
     def forward(
         self,
@@ -87,22 +101,24 @@ class SchNetInteraction(nn.Module):
 
     Updates the embedding of each atom, :math:`x_i` by sequentially
     applying the following:
-    - a linear transform of each node's features :math:`h_i \leftarrow W x_i`
-    - a message passing cfconv block that replaces the current node's features
-        with a sum over the distance-filtered features of its neighbors
-        :math:`h_i \leftarrow \sum_{j \in \mathcal{N}(i)}
-        \mathbb{F}(r_{ij}) \odot h_j`
-    - a multilayer perceptron that further embeds these new node features
-        :math:`h_i \leftarrow \mathrm{MLP}(h_i)`
+
+    1. a linear transform of each node's features :math:`x_i \leftarrow W x_i`
+    2. message creation :math:`m_{ij} = x_j \odot \mathbb{F}(r_{ij})`
+    3. message aggregation
+       :math:`m_i = \sum_{j \in \mathcal{N}(i)} m_{ij}`
+    4. a multi-layer perceptron that further embeds these new node features
+       :math:`x_i \leftarrow \mathrm{MLP}(h_i)`
 
     Parameters
     ----------
-    n_features : int
+    n_features
         Number of features per node.
-    expansion_features : int
+    expansion_features
         Number of features used for the radial basis expansion.
-    cutoff : float
+    cutoff
         Neighborhood cutoff radius.
+    basis_type
+        The type of radial basis expansion to use.
     """
 
     def __init__(
@@ -110,7 +126,7 @@ class SchNetInteraction(nn.Module):
         n_features: int,
         expansion_features: int,
         cutoff: float,
-        basis_type: type[DistanceExpansion] = GaussianSmearing,
+        basis_type: type[DistanceExpansion],
     ):
         super().__init__()
 
@@ -152,29 +168,50 @@ class SchNetInteraction(nn.Module):
 
 
 class SchNet(GraphPESModel):
+    r"""
+    The `SchNet <https://arxiv.org/abs/1706.08566>`_ model: a pairwise, scalar,
+    message passing GNN.
+
+    Parameters
+    ----------
+    node_features
+        Number of features per node.
+    expansion_features
+        Number of features used for the radial basis expansion.
+    cutoff
+        Neighborhood cutoff radius.
+    num_interactions
+        Number of interaction blocks to apply.
+    expansion
+        The type of radial basis expansion to use. Defaults to
+        :class:`GaussianSmearing <graph_pes.models.distances.GaussianSmearing>`
+        as in the original paper.
+    """
+
     def __init__(
         self,
-        node_feature_size: int,
-        expansion_feature_size: int,
+        node_features: int,
+        expansion_features: int,
         cutoff: float,
         num_interactions: int = 3,
-        basis_type: type[DistanceExpansion] = GaussianSmearing,
+        expansion: type[DistanceExpansion] | None = None,
     ):
         super().__init__()
 
-        self.chemical_embedding = PerSpeciesEmbedding(
-            dim=node_feature_size, default=None
-        )
+        if expansion is None:
+            expansion = GaussianSmearing
+
+        self.chemical_embedding = PerSpeciesEmbedding(node_features)
 
         self.interactions = nn.ModuleList(
             SchNetInteraction(
-                node_feature_size, expansion_feature_size, cutoff, basis_type
+                node_features, expansion_features, cutoff, expansion
             )
             for _ in range(num_interactions)
         )
 
         self.read_out = MLP(
-            [node_feature_size, node_feature_size // 2, 1],
+            [node_features, node_features // 2, 1],
             activation=ShiftedSoftplus(),
         )
 

@@ -19,6 +19,7 @@ Available Models
    :maxdepth: 2
 
    models/pairwise
+   models/schnet
 
 
 Helper Classes and Functions
