@@ -9,9 +9,7 @@ from graph_pes.data.batching import AtomicGraphBatch
 from graph_pes.nn import PositiveParameter
 from graph_pes.transform import PerAtomScale, PerAtomShift
 from jaxtyping import Float
-from torch import Tensor, nn
-
-from .distances import Envelope
+from torch import Tensor
 
 
 class PairPotential(GraphPESModel, ABC):
@@ -198,43 +196,3 @@ class Morse(PairPotential):
 
         # set the width to be broad
         self.a = PositiveParameter(0.5)
-
-
-class LearnablePairPotential(PairPotential):
-    r"""
-    A pair potential of the form:
-
-    .. math::
-        V(r_{ij}, Z_i, Z_j) = V(r_{ij}) = \text{Envelope}(r_{ij}) \circ
-        f_\theta(r_{ij})
-
-    where:
-
-    * :math:`r_{ij}` is the distance between atoms :math:`i` and :math:`j`
-    * :math:`f_\theta: \mathbb{R}^{\text{batch} \times 1} \rightarrow
-      \mathbb{R}^{\text{batch} \times 1}, r \mapsto V(r)` is a learnable
-      function parameterised by :math:`\theta`.
-    * :math:`\text{Envelope} : \mathbb{R}^{\text{batch} \times 1} \rightarrow
-      \mathbb{R}^{\text{batch} \times 1}` is an envelope function that ensures
-      smoothness of the potential at the cutoff distance.
-
-    Parameters
-    ----------
-    f
-        The learnable element.
-    envelope
-        The envelope.
-    """
-
-    def __init__(self, f: nn.Module, envelope: Envelope):
-        super().__init__()
-        self.f = f
-        self.envelope = envelope
-
-    def interaction(
-        self,
-        r: Float[Tensor, "E 1"],
-        Z_i: torch.Tensor | None = None,
-        Z_j: torch.Tensor | None = None,
-    ) -> Float[Tensor, "E 1"]:
-        return self.f(r) * self.envelope(r)

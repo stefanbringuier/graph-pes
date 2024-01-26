@@ -395,3 +395,15 @@ class PositiveParameter(ConstrainedParameter):
     @property
     def constrained_value(self):
         return torch.exp(self._parameter)
+
+
+class HaddamardProduct(nn.Module):
+    def __init__(self, components: list[nn.Module]):
+        super().__init__()
+        self.components = nn.ModuleList(components)
+
+    def forward(self, x):
+        out = 1
+        for component in self.components:
+            out = out * component(x)
+        return out

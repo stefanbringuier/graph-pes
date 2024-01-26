@@ -6,7 +6,7 @@ from typing import Callable
 
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 
 from .core import GraphPESModel, get_predictions
@@ -257,7 +257,16 @@ def default_trainer_kwargs() -> dict:
         "accelerator": "auto",
         "max_epochs": 100,
         "enable_model_summary": False,
-        "callbacks": [LearningRateMonitor(logging_interval="epoch")],
+        "callbacks": [
+            LearningRateMonitor(logging_interval="epoch"),
+            ModelCheckpoint(
+                monitor="val_total_loss",
+                filename="{epoch}-{val_total_loss:.4f}",
+                mode="min",
+                save_top_k=1,
+                save_weights_only=True,
+            ),
+        ],
     }
 
 

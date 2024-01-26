@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from ase import Atoms
+from cycler import cycler
 from matplotlib.ticker import MaxNLocator
 
 from .core import GraphPESModel, get_predictions
@@ -16,9 +17,26 @@ from .transform import Identity, Transform
 from .util import Keys
 
 _my_style = {
-    "figure.figsize": (3, 3),
+    "figure.figsize": (3.5, 3),
     "axes.spines.right": False,
     "axes.spines.top": False,
+    "legend.frameon": False,
+    "legend.fancybox": False,
+    "savefig.transparent": False,
+    "axes.prop_cycle": cycler(
+        "color",
+        [
+            "#4385be",
+            "#ce5d97",
+            "#da702c",
+            "#879a39",
+            "#8b7ec8",
+            "#d14d41",
+            "#d14d41",
+            "#d0a215",
+            "#3aa99f",
+        ],
+    ),
 }
 
 
