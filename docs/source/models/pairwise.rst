@@ -9,5 +9,3 @@ Pair Potentials
    :show-inheritance:
 .. autoclass :: graph_pes.models.pairwise.Morse
    :show-inheritance:
-.. autoclass :: graph_pes.models.pairwise.LearnablePairPotential
-   :show-inheritance:

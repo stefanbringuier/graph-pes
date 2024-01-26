@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from math import pi as π
-from typing import Callable
+from typing import Protocol
 
 import torch
 from jaxtyping import Float
@@ -50,6 +50,14 @@ class DistanceExpansion(nn.Module, ABC):
     def forward(
         self, r: Float[Tensor, "..."]
     ) -> Float[Tensor, "... n_features"]:
+        """
+        Call the expansion as normal in PyTorch.
+
+        Parameters
+        ----------
+        r
+            The distances to expand.
+        """
         if r.shape[-1] != 1:
             r = r.unsqueeze(-1)
         return self.expand(r)
@@ -73,6 +81,25 @@ class Bessel(DistanceExpansion):
     where :math:`r_\text{cut}` is the cutoff radius and :math:`n` is the order
     of the Bessel function, as introduced in `Directional Message Passing for
     Molecular Graphs <http://arxiv.org/abs/2003.03123>`_.
+
+    .. code::
+
+        import torch
+        from graph_pes.models.distances import Bessel
+        import matplotlib.pyplot as plt
+
+        cutoff = 5.0
+        bessel = Bessel(n_features=4, cutoff=cutoff)
+        r = torch.linspace(0, cutoff, 101) # (101,)
+
+        with torch.no_grad():
+            embedding = bessel(r) # (101, 4)
+
+        plt.plot(r / cutoff, embedding)
+        plt.xlabel(r"$r / r_c$")
+
+    .. image:: bessel.svg
+        :align: center
 
     Parameters
     ----------
@@ -100,7 +127,7 @@ class Bessel(DistanceExpansion):
     def expand(self, r: torch.Tensor) -> torch.Tensor:
         numerator = self.pre_factor * torch.sin(r * self.frequencies)
         # we avoid dividing by zero by replacing any zero elements with 1
-        denominator = torch.where(r != 0, torch.tensor(1.0), r)
+        denominator = torch.where(r == 0, torch.tensor(1.0), r)
         return numerator / denominator
 
 
@@ -114,6 +141,25 @@ class GaussianSmearing(DistanceExpansion):
 
     where :math:`\mu_n` is the center of the :math:`n`'th Gaussian
     and :math:`\sigma` is a width shared across all the Gaussians.
+
+    .. code::
+
+        import torch
+        from graph_pes.models.distances import GaussianSmearing
+        import matplotlib.pyplot as plt
+
+        cutoff = 5.0
+        gaussian = GaussianSmearing(n_features=4, cutoff=cutoff)
+        r = torch.linspace(0, cutoff, 101)  # (101,)
+
+        with torch.no_grad():
+            embedding = gaussian(r)  # (101, 4)
+
+        plt.plot(r / cutoff, embedding)
+        plt.xlabel(r"$r / r_c$")
+
+    .. image:: gaussian.svg
+        :align: center
 
     Parameters
     ----------
@@ -155,10 +201,12 @@ class GaussianSmearing(DistanceExpansion):
         return torch.exp(self.coef * offsets**2)
 
 
-Envelope = Callable[[torch.Tensor], torch.Tensor]
+class Envelope(Protocol):
+    def __call__(self, r: Float[Tensor, "... 1"]) -> Float[Tensor, "... 1"]:
+        ...
 
 
-class PolynomialEnvelope(nn.Module):
+class PolynomialEnvelope(nn.Module, Envelope):
     r"""
     A thrice differentiable envelope function.
 
