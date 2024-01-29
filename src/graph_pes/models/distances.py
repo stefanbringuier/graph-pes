@@ -201,6 +201,135 @@ class GaussianSmearing(DistanceExpansion):
         return torch.exp(self.coef * offsets**2)
 
 
+class SinExpansion(DistanceExpansion):
+    r"""
+    A sine expansion:
+
+    .. math::
+        \phi_{n}(r) = \sin\left(\frac{n \pi r}{r_\text{cut}}\right)
+        \quad n \in [1, n_\text{features}]
+
+    where :math:`r_\text{cut}` is the cutoff radius and :math:`n` is the
+    frequency of the sine function.
+
+    .. code::
+
+        import torch
+        from graph_pes.models.distances import SinExpansion
+        import matplotlib.pyplot as plt
+
+        cutoff = 5.0
+        sine = SinExpansion(n_features=4, cutoff=cutoff)
+        r = torch.linspace(0, cutoff, 101)  # (101,)
+        with torch.no_grad():
+            embedding = sine(r)  # (101, 4)
+
+        plt.plot(r / cutoff, embedding)
+        plt.xlabel(r"$r / r_c$")
+
+    .. image:: sin.svg
+        :align: center
+
+    Parameters
+    ----------
+    n_features
+        The number of features to expand into.
+    cutoff
+        The cutoff radius.
+    trainable
+        Whether the expansion parameters are trainable.
+
+    Attributes
+    ----------
+    frequencies
+        :math:`n`, the frequencies of the sine functions.
+    """
+
+    def __init__(self, n_features: int, cutoff: float, trainable: bool = True):
+        super().__init__(n_features, cutoff, trainable)
+        self.frequencies = nn.Parameter(
+            torch.arange(1, n_features + 1) * π / cutoff,
+            requires_grad=trainable,
+        )
+
+    def expand(self, r: torch.Tensor) -> torch.Tensor:
+        return torch.sin(r * self.frequencies)
+
+
+class ExponentialRBF(DistanceExpansion):
+    r"""
+    The exponential radial basis function expansion, as introduced in
+    `PhysNet: A Neural Network for Predicting Energies, Forces, Dipole
+    Moments and Partial Charges <https://pubs.acs.org/doi/10.1021/acs.jctc.9b00181>`_:
+
+    .. math::
+        \phi_{n}(r) = \exp\left(-\beta_n \cdot(\exp(-r_{ij}) - \mu_n)^2 \right)
+        \quad n \in [1, n_\text{features}]
+
+    where :math:`\beta_n` and :math:`\mu_n` are the (inverse) width and
+    center of the :math:`n`'th expansion, respectively.
+
+    Following `PhysNet <https://pubs.acs.org/doi/10.1021/acs.jctc.9b00181>`_,
+    :math:`\mu_n` are evenly spaced between :math:`\exp(-r_{\text{cut}})` and
+    :math:`1`, and:
+
+    .. math::
+        \left( \frac{1}{\sqrt{2}\beta_n} \right)^2 =
+        \frac{1 - \exp(-r_{\text{cut}})}{n_\text{features}}
+
+    .. code::
+
+        import torch
+        from graph_pes.models.distances import ExponentialRBF
+        import matplotlib.pyplot as plt
+
+        cutoff = 5.0
+        rbf = ExponentialRBF(n_features=10, cutoff=cutoff)
+        r = torch.linspace(0, cutoff, 101)  # (101,)
+        with torch.no_grad():
+            embedding = rbf(r)  # (101, 10)
+
+        plt.plot(r / cutoff, embedding)
+        plt.xlabel(r"$r / r_c$")
+
+    .. image:: erbf.svg
+        :align: center
+
+    Parameters
+    ----------
+    n_features
+        The number of features to expand into.
+    cutoff
+        The cutoff radius.
+    trainable
+        Whether the expansion parameters are trainable.
+
+    Attributes
+    ----------
+    β
+        :math:`\beta_n`, the (inverse) widths of each basis.
+    centers
+        :math:`\mu_n`, the centers of each basis.
+    """
+
+    def __init__(self, n_features: int, cutoff: float, trainable: bool = True):
+        super().__init__(n_features, cutoff, trainable)
+
+        c = torch.exp(-torch.tensor(cutoff))
+        self.β = nn.Parameter(
+            torch.ones(n_features) / (2 * (1 - c) / n_features) ** 2,
+            requires_grad=trainable,
+        )
+        self.centers = nn.Parameter(
+            torch.linspace(c.item(), 1, n_features),
+            requires_grad=trainable,
+        )
+
+    def expand(self, r: torch.Tensor) -> torch.Tensor:
+        offsets = torch.exp(-r) - self.centers
+        return torch.exp(-self.β * offsets**2)
+
+
 class Envelope(Protocol):
     def __call__(self, r: Float[Tensor, "... 1"]) -> Float[Tensor, "... 1"]:
         ...
@@ -269,3 +398,31 @@ class ExtendedPolynomialEnvelope(PolynomialEnvelope):
             "ExtendedPolynomialEnvelope("
             f"cutoff={self.cutoff}, onset={self.onset}, p={self.p})"
         )
+
+
+class CosineEnvelope(Envelope):
+    r"""
+    A cosine envelope function.
+
+    .. math::
+        E_c(r) = \frac{1}{2}\left(1 + \cos\left(\frac{\pi r}{r_\text{cut}}
+        \right)\right)
+
+    where :math:`r_\text{cut}` is the cutoff radius.
+
+    Parameters
+    ----------
+    cutoff : float
+        The cutoff radius.
+    """
+
+    def __init__(self, cutoff: float):
+        super().__init__()
+        self.cutoff = cutoff
+
+    def __call__(self, r: torch.Tensor) -> torch.Tensor:
+        cos = 0.5 * (1 + torch.cos(π * r / self.cutoff))
+        return torch.where(r <= self.cutoff, cos, torch.tensor(0.0))
+
+    def __repr__(self):
+        return f"CosineEnvelope(cutoff={self.cutoff})"

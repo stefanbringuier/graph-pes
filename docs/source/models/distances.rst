@@ -12,6 +12,10 @@ We also provide a few common expansions:
     :show-inheritance:
 .. autoclass :: graph_pes.models.distances.GaussianSmearing
     :show-inheritance:
+.. autoclass :: graph_pes.models.distances.SinExpansion
+    :show-inheritance:
+.. autoclass :: graph_pes.models.distances.ExponentialRBF
+    :show-inheritance:
 
 
 Implementing a new Expansion
