@@ -404,7 +404,7 @@ class PerAtomScale(Transform):
         Shaped[Tensor, "shape ..."]
             The input data, scaled by the learned scale.
         """
-        scales = self.scales[graph.Z]
+        scales = self.scales[graph.Z].squeeze()
         if not graph.is_local_property(x):
             scales = sum_per_structure(scales, graph)
 

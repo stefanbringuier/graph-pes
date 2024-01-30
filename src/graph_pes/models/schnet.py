@@ -6,7 +6,7 @@ import torch
 from graph_pes.core import GraphPESModel
 from graph_pes.data.atomic_graph import AtomicGraph
 from graph_pes.nn import MLP, PerSpeciesEmbedding, ShiftedSoftplus
-from torch import nn
+from torch import Tensor, nn
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import scatter
 
@@ -73,6 +73,12 @@ class CFConv(MessagePassing):
 
         return x_j * self.filter_generator(neighbour_distances)
 
+    def update(self, inputs: Tensor) -> Tensor:
+        """
+        Identity update function.
+        """
+        return inputs
+
     def forward(
         self,
         neighbour_index: torch.Tensor,
@@ -133,7 +139,7 @@ class SchNetInteraction(nn.Module):
         # schnet interaction block's are composed of 3 elements
 
         # 1. linear transform to get new node features
-        self.linear = nn.Linear(n_features, n_features)
+        self.linear = nn.Linear(n_features, n_features, bias=False)
 
         # 2. cfconv to mix these new features with distances information,
         # and aggregate over neighbors to create completely new node features
@@ -172,6 +178,26 @@ class SchNet(GraphPESModel):
     The `SchNet <https://arxiv.org/abs/1706.08566>`_ model: a pairwise, scalar,
     message passing GNN.
 
+    A stack of :class:`SchNetInteraction` blocks are used to update
+    the node features of each atom, :math:`x_i` by sequentially
+    aggregating over neighbouring atom's features, :math:`x_j`:, and
+    distances, :math:`r_{ij}`:.
+
+    Citation:
+
+    .. code::
+
+        @article{Schutt-18-03,
+            title = {{{SchNet}} {\textendash} {{A}} Deep Learning Architecture for Molecules and Materials},
+            author = {Sch{\"u}tt, K. T. and Sauceda, H. E. and Kindermans, P.-J. and Tkatchenko, A. and M{\"u}ller, K.-R.},
+            year = {2018},
+            journal = {The Journal of Chemical Physics},
+            volume = {148},
+            number = {24},
+            pages = {241722},
+            doi = {10.1063/1.5019779},
+        }
+
     Parameters
     ----------
     node_features
@@ -186,7 +212,7 @@ class SchNet(GraphPESModel):
         The type of radial basis expansion to use. Defaults to
         :class:`GaussianSmearing <graph_pes.models.distances.GaussianSmearing>`
         as in the original paper.
-    """
+    """  # noqa: E501
 
     def __init__(
         self,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from math import pi as π
-from typing import Protocol
 
 import torch
 from jaxtyping import Float
@@ -15,8 +14,11 @@ class DistanceExpansion(nn.Module, ABC):
     [0, r_{\text{cutoff}}] \rightarrow \mathbb{R}^{n_\text{features}}`.
 
     Subclasses should implement :meth:`expand`, which must also work over
-    batches: :math:`\phi(r) : [0, r_{\text{cutoff}}]^{n_\text{batch} \times 1}
-    \rightarrow \mathbb{R}^{n_\text{batch} \times n_\text{features}}`.
+    batches:
+
+    .. math::
+        \phi(r) : [0, r_{\text{cutoff}}]^{n_\text{batch} \times 1}
+        \rightarrow \mathbb{R}^{n_\text{batch} \times n_\text{features}}
 
     Parameters
     ----------
@@ -330,12 +332,12 @@ class ExponentialRBF(DistanceExpansion):
         return torch.exp(-self.β * offsets**2)
 
 
-class Envelope(Protocol):
+class Envelope(nn.Module):
     def __call__(self, r: Float[Tensor, "... 1"]) -> Float[Tensor, "... 1"]:
         ...
 
 
-class PolynomialEnvelope(nn.Module, Envelope):
+class PolynomialEnvelope(Envelope):
     r"""
     A thrice differentiable envelope function.
 

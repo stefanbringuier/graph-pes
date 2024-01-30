@@ -398,7 +398,7 @@ class PositiveParameter(ConstrainedParameter):
 
 
 class HaddamardProduct(nn.Module):
-    def __init__(self, components: list[nn.Module]):
+    def __init__(self, *components: nn.Module):
         super().__init__()
         self.components = nn.ModuleList(components)
 
