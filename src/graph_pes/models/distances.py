@@ -333,7 +333,7 @@ class ExponentialRBF(DistanceExpansion):
 
 
 class Envelope(nn.Module):
-    def __call__(self, r: Float[Tensor, "... 1"]) -> Float[Tensor, "... 1"]:
+    def forward(self, r: Float[Tensor, "... 1"]) -> Float[Tensor, "... 1"]:
         ...
 
 
@@ -388,7 +388,7 @@ class ExtendedPolynomialEnvelope(PolynomialEnvelope):
         super().__init__(cutoff - onset, p)
         self.onset = onset
 
-    def __call__(self, r):
+    def forward(self, r):
         return torch.where(
             r < self.onset,
             torch.ones_like(r),
@@ -422,7 +422,7 @@ class CosineEnvelope(Envelope):
         super().__init__()
         self.cutoff = cutoff
 
-    def __call__(self, r: torch.Tensor) -> torch.Tensor:
+    def forward(self, r: torch.Tensor) -> torch.Tensor:
         cos = 0.5 * (1 + torch.cos(π * r / self.cutoff))
         return torch.where(r <= self.cutoff, cos, torch.tensor(0.0))
 
