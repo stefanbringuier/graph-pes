@@ -62,10 +62,11 @@ def my_style(func):
     return wrapper
 
 
-def move_axes(ax):
+def move_axes(ax: plt.Axes | None = None):  # type: ignore
     """
     Move the axes to the center of the figure
     """
+    ax: plt.Axes = ax or plt.gca()
     ax.spines["left"].set_position(("outward", 10))
     ax.spines["bottom"].set_position(("outward", 10))
 
@@ -127,17 +128,22 @@ def parity_plot(
         from graph_pes.transform import DividePerAtom
         from graph_pes.util import Keys
 
-        parity_plot(
-            model,
-            train,
-            Keys.ENERGY,
-            transform=DividePerAtom(),
-            units="eV/atom",
-            c="royalblue",
-            label="Train",
-        )
+        for name, data, colour in zip(
+            ["Train", "Test"],
+            [train, test],
+            ["royalblue", "crimson"],
+        ):
+            parity_plot(
+                model,
+                data,
+                Keys.ENERGY,
+                transform=DividePerAtom(),
+                units="eV / atom",
+                label=name,
+                c=colour,
+            )
 
-        ...
+        plt.legend(loc="upper left", fancybox=False);
 
     .. image:: notebooks/Cu-LJ-parity.svg
         :align: center

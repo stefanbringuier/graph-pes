@@ -5,6 +5,7 @@ from typing import Callable
 
 import torch
 import torch.nn as nn
+from ase.data import chemical_symbols
 from graph_pes.util import MAX_Z, pairs
 from torch import Tensor
 
@@ -257,17 +258,16 @@ class PerSpeciesParameter(torch.nn.Parameter):
         # their (nicely formatted) values
         lines = []
         for z, values in zip(Zs, matrix.split("\n")):
-            lines.append(f"{z:3d} : {values.strip()}")
+            lines.append(f"{chemical_symbols[z]:>2} : {values.strip()}")
 
-        lines = "\n    ".join(lines)
+        lines = "\n   ".join(lines)
 
         torch.set_printoptions(profile="default")
 
         return f"""\
 PerSpeciesParameter({{
-      Z : {tuple(self.shape[1:])}
     {lines}
-}}, requires_grad={self.requires_grad})"""
+}}, dim={tuple(self.shape[1:])}, requires_grad={self.requires_grad})"""
 
 
 class PerSpeciesEmbedding(torch.nn.Module):
