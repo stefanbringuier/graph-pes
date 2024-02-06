@@ -156,7 +156,9 @@ class AtomicGraphBatch(AtomicGraph):
             return self._positions[j] - self._positions[i]
 
         # otherwise calculate offsets on a per-structure basis
-        actual_offsets = torch.zeros((self.neighbour_index.shape[1], 3))
+        actual_offsets = torch.zeros(
+            (self.neighbour_index.shape[1], 3), device=i.device
+        )
         # TODO: parallelise this loop
         for batch, (start, end) in enumerate(pairs(self.ptr)):
             mask = (i >= start) & (i < end)

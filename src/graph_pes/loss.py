@@ -237,3 +237,25 @@ class MAE(torch.nn.L1Loss):
 
     def __init__(self):
         super().__init__()
+
+
+class MeanVectorPercentageError(torch.nn.Module):
+    r"""
+    Mean vector percentage error metric:
+
+    .. math::
+        \frac{1}{N} \sum_i^N \frac{\left{||} \hat{v}_i - v_i \right{||}}
+        {||v_i|| + \varepsilon}
+    """
+
+    def __init__(self, epsilon: float = 1e-6):
+        super().__init__()
+        self.epsilon = epsilon
+
+    def forward(
+        self, input: torch.Tensor, target: torch.Tensor
+    ) -> torch.Tensor:
+        return (
+            (input - target).norm(dim=-1)
+            / (target.norm(dim=-1) + self.epsilon)
+        ).mean()

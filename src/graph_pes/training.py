@@ -13,7 +13,7 @@ from .core import GraphPESModel, get_predictions
 from .data import AtomicGraph
 from .data.batching import AtomicDataLoader, AtomicGraphBatch
 from .loss import RMSE, Loss, WeightedLoss
-from .transform import Chain, PerAtomScale, Scale
+from .transform import PerAtomScale, PerAtomStandardScaler, Scale
 from .util import Keys
 
 
@@ -226,7 +226,7 @@ def get_loss(
 ) -> WeightedLoss:
     if loss is None:
         default_transforms = {
-            Keys.ENERGY: Chain([PerAtomScale(), PerAtomScale()]),
+            Keys.ENERGY: PerAtomStandardScaler(),  # TODO is this right?
             Keys.FORCES: PerAtomScale(),
             Keys.STRESS: Scale(),
         }
@@ -271,7 +271,10 @@ def default_trainer_kwargs() -> dict:
 
 
 def device_info_filter(record):
-    return "PU available: " not in record.getMessage()
+    return (
+        "PU available: " not in record.getMessage()
+        and "LOCAL_RANK" not in record.getMessage()
+    )
 
 
 # disable verbose logging from pytorch lightning

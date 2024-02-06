@@ -15,7 +15,6 @@ MAX_Z = 118
 """The maximum atomic number in the periodic table."""
 
 
-T = TypeVar("T")
 
 
 @overload
