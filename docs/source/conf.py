@@ -31,7 +31,7 @@ templates_path = ["_templates"]
 exclude_patterns = []
 
 intersphinx_mapping = {
-    "python": ("http://docs.python.org/", None),
+    "python": ("https://docs.python.org/3", None),
     "torch": ("https://pytorch.org/docs/master/", None),
     "ase": ("https://wiki.fysik.dtu.dk/ase/", None),
 }

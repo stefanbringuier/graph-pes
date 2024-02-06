@@ -98,14 +98,14 @@ class LennardJones(PairPotential):
         The distance at which the potential is zero.
     """
 
-    def __init__(self):
+    def __init__(self, epsilon: float = 0.1, sigma: float = 1.0):
         super().__init__()
-        self.epsilon = PositiveParameter(0.1)
-        self.sigma = PositiveParameter(1.0)
+        self.epsilon = PositiveParameter(epsilon)
+        self.sigma = PositiveParameter(sigma)
 
         # epsilon is a scaling term, so only need to learn a shift
         # parameter (rather than a shift and scale)
-        self._energy_summation = EnergySummation(local_transform=PerAtomShift())
+        self.energy_summation = EnergySummation(local_transform=PerAtomShift())
 
     def interaction(
         self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor

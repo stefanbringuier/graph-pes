@@ -248,6 +248,12 @@ class PerSpeciesParameter(torch.nn.Parameter):
         return sum(self[Z].numel() for Z in self._accessed_Zs)
 
     def __repr__(self) -> str:
+        if len(self._accessed_Zs) == 0:
+            return (
+                f"PerSpeciesParameter(dim={tuple(self.shape[1:])}, "
+                f"requires_grad={self.requires_grad})"
+            )
+
         torch.set_printoptions(threshold=3)
         Zs = sorted(self._accessed_Zs)
         with torch.no_grad():
