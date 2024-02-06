@@ -20,6 +20,7 @@ Available Models
 
    models/pairwise
    models/schnet
+   models/painn
 
 
 Helper Classes and Functions

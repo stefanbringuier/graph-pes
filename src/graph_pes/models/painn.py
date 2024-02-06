@@ -10,7 +10,32 @@ from torch import Tensor, nn
 from .distances import Bessel, PolynomialEnvelope
 
 
-class InteractionBlock(nn.Module):
+class Interaction(nn.Module):
+    r"""
+    The interaction block of the :class:`PaiNN` model.
+
+    Continuous filters generated from neighbour distances are convolved with
+    existing scalar embeddings to create messages :math:`x_{j \rightarrow i}`
+    for each neighbour :math:`j` of atom :math:`i`.
+
+    Scalar total messages, :math:`\Delta s_i`, are created by summing over
+    neighbours, while vector total messages, :math:`\Delta v_i`,
+    incorporate directional information from neighbour unit vectors and
+    existing vector embeddings.
+
+    The code aims to follow **Figure 2b** of the `PaiNN paper
+    <https://arxiv.org/abs/2102.03150>`_ as closely as possible.
+
+    Parameters
+    ----------
+    radial_features
+        The number of radial features to expand bond distances into.
+    internal_dim
+        The dimension of the internal representations.
+    cutoff
+        The cutoff distance for the radial features.
+    """
+
     def __init__(
         self,
         radial_features: int,
@@ -80,7 +105,20 @@ class VectorLinear(nn.Module):
         return self._linear(x.transpose(-1, -2)).transpose(-1, -2)
 
 
-class UpdateBlock(nn.Module):
+class Update(nn.Module):
+    r"""
+    The update block of the :class:`PaiNN` model.
+
+    Projections of vector embeddings are used to update the scalar embeddings,
+    and vice versa. The code aims to follow **Figure 2c** of the `PaiNN paper
+    <https://arxiv.org/abs/2102.03150>`_ as closely as possible.
+
+    Parameters
+    ----------
+    internal_dim
+        The dimension of the internal representations.
+    """
+
     def __init__(self, internal_dim: int):
         super().__init__()
         self.internal_dim = internal_dim
@@ -120,6 +158,36 @@ class UpdateBlock(nn.Module):
 
 
 class PaiNN(GraphPESModel):
+    r"""
+    The `Polarizable Atom Interaction Neural Network (PaiNN)
+    <https://arxiv.org/abs/2102.03150>`_ model.
+
+    Alternating :class:`Interaction` and :class:`Update` blocks
+    are used to residually update both vector and scalar per-atom embeddings.
+
+    Citation:
+
+    .. code-block:: bibtex
+
+        @misc{Schutt-21-06,
+            title = {Equivariant Message Passing for the Prediction of Tensorial Properties and Molecular Spectra},
+            author = {Sch{\"u}tt, Kristof T. and Unke, Oliver T. and Gastegger, Michael},
+            year = {2021},
+            doi = {10.48550/arXiv.2102.03150},
+        }
+
+    Parameters
+    ----------
+    internal_dim
+        The dimension of the internal representations.
+    radial_features
+        The number of radial features to expand bond distances into.
+    layers
+        The number of (interaction + update) layers to use.
+    cutoff
+        The cutoff distance for the radial features.
+    """  # noqa: E501
+
     def __init__(
         self,
         internal_dim: int = 32,
@@ -130,14 +198,14 @@ class PaiNN(GraphPESModel):
         super().__init__()
         self.internal_dim = internal_dim
         self.layers = layers
-        self.interactions: list[InteractionBlock] = nn.ModuleList(
+        self.interactions: list[Interaction] = nn.ModuleList(
             [
-                InteractionBlock(radial_features, internal_dim, cutoff)
+                Interaction(radial_features, internal_dim, cutoff)
                 for _ in range(layers)
             ]
         )  # type: ignore
-        self.updates: list[UpdateBlock] = nn.ModuleList(
-            [UpdateBlock(internal_dim) for _ in range(layers)]
+        self.updates: list[Update] = nn.ModuleList(
+            [Update(internal_dim) for _ in range(layers)]
         )  # type: ignore
         self.z_embedding = PerSpeciesEmbedding(internal_dim)
         self.read_out = MLP(

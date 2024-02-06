@@ -185,7 +185,7 @@ class SchNet(GraphPESModel):
 
     Citation:
 
-    .. code::
+    .. code:: bibtex
 
         @article{Schutt-18-03,
             title = {{{SchNet}} {\textendash} {{A}} Deep Learning Architecture for Molecules and Materials},
