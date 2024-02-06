@@ -87,14 +87,14 @@ class LennardJones(PairPotential):
 
     where :math:`r_{ij}` is the distance between atoms :math:`i` and :math:`j`.
     Internally, :math:`\varepsilon` and :math:`\sigma` are stored as
-    :class:`PositiveParameter <graph_pes.nn,PositiveParamerer>` instances,
+    :class:`PositiveParameter <graph_pes.nn.PositiveParamerer>` instances,
     which ensures that they are kept strictly positive during training.
 
-    Attributes
+    Parameters
     ----------
-    epsilon: :class:`PositiveParameter <graph_pes.nn.PositiveParameter>`
-        The depth of the potential.
-    sigma: :class:`PositiveParameter <graph_pes.nn.PositiveParameter>`
+    epsilon:
+        The maximum depth of the potential.
+    sigma:
         The distance at which the potential is zero.
     """
 
