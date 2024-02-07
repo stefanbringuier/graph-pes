@@ -4,6 +4,7 @@ import torch
 from jaxtyping import Float
 from torch import Tensor, nn
 
+from ..core import GraphPESModel
 from ..data import AtomicGraph
 from ..nn import MLP, HaddamardProduct, PerSpeciesEmbedding
 from .distances import CosineEnvelope, ExponentialRBF
@@ -296,3 +297,48 @@ class Interaction(nn.Module):
         )  # type: ignore
 
         return Y + torch.matrix_power(Y, 2)  # (N, C, 3, 3)
+
+
+class ScalarOutput(nn.Module):
+    def __init__(self, embedding_size: int):
+        super().__init__()
+        self.mlp = MLP(
+            layers=[3 * embedding_size, 2 * embedding_size, 1],
+            activation=nn.SiLU(),
+        )
+
+    def forward(
+        self, X: Float[Tensor, "graph.n_atoms self.embedding_size 3 3"]
+    ) -> Float[Tensor, "graph.n_atoms 1"]:
+        I, A, S = decompose_tensor(X)  # (N, C, 3, 3)
+        norm_I = frobenius_norm(I)
+        norm_A = frobenius_norm(A)
+        norm_S = frobenius_norm(S)
+
+        X = torch.cat((norm_I, norm_A, norm_S), dim=-1)  # (N, 3C)
+        return self.mlp(X)
+
+
+class TensorNet(GraphPESModel):
+    def __init__(
+        self,
+        radial_features: int,
+        embedding_size: int,
+        cutoff: float,
+        layers: int = 1,
+    ):
+        super().__init__()
+        self.embedding = Embedding(radial_features, embedding_size, cutoff)
+        self.interactions: list[Interaction] = nn.ModuleList(
+            [
+                Interaction(radial_features, embedding_size, cutoff)
+                for _ in range(layers)
+            ]
+        )  # type: ignore
+        self.read_out = ScalarOutput(embedding_size)
+
+    def predict_local_energies(self, graph: AtomicGraph):
+        X = self.embedding(graph)
+        for interaction in self.interactions:
+            X = interaction(X, graph) + X  # residual connection
+        return self.read_out(X)
