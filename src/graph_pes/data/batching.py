@@ -9,7 +9,6 @@ from torch import Tensor
 from torch.utils.data import DataLoader as TorchDataLoader
 from torch_geometric.utils import scatter
 
-from ..util import pairs
 from .atomic_graph import AtomicGraph
 
 
@@ -156,16 +155,12 @@ class AtomicGraphBatch(AtomicGraph):
             return self._positions[j] - self._positions[i]
 
         # otherwise calculate offsets on a per-structure basis
-        actual_offsets = torch.zeros(
-            (self.neighbour_index.shape[1], 3), device=i.device
+        cell_per_edge = self.cell[self.batch[i]]
+        actual_offsets = torch.einsum(
+            "kl,klm->km",
+            self.neighbour_offsets.float(),
+            cell_per_edge,
         )
-        # TODO: parallelise this loop
-        for batch, (start, end) in enumerate(pairs(self.ptr)):
-            mask = (i >= start) & (i < end)
-            actual_offsets[mask] = (
-                self.neighbour_offsets[mask].float() @ self.cell[batch]
-            )
-
         return self._positions[j] - self._positions[i] + actual_offsets
 
     @property
