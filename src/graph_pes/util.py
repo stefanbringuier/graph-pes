@@ -15,8 +15,6 @@ MAX_Z = 118
 """The maximum atomic number in the periodic table."""
 
 
-
-
 @overload
 def pairs(a: Sequence[T]) -> Iterator[tuple[T, T]]:
     ...
@@ -122,7 +120,7 @@ def as_possible_tensor(value: object) -> Tensor | None:
         return None
 
 
-class Keys(Enum):
+class Property(Enum):
     ENERGY = "energy"
     FORCES = "forces"
     STRESS = "stress"

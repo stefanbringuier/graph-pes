@@ -4,7 +4,7 @@ from graph_pes.data.atomic_graph import convert_to_atomic_graphs
 from graph_pes.data.batching import AtomicGraphBatch
 from graph_pes.models.pairwise import LennardJones
 from graph_pes.training import Loss, train_model
-from graph_pes.util import Keys
+from graph_pes.util import Property
 
 
 def test_integration():
@@ -15,7 +15,7 @@ def test_integration():
     model = LennardJones()
 
     loss = Loss("energy")
-    property_labels = {Keys.ENERGY: "energy"}
+    property_labels = {Property.ENERGY: "energy"}
     before = loss(
         get_predictions(model, _batch, property_labels),
         _batch,

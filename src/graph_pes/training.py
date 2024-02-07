@@ -14,7 +14,7 @@ from .data import AtomicGraph
 from .data.batching import AtomicDataLoader, AtomicGraphBatch
 from .loss import RMSE, Loss, WeightedLoss
 from .transform import PerAtomScale, PerAtomStandardScaler, Scale
-from .util import Keys
+from .util import Property
 
 
 def train_model(
@@ -24,7 +24,7 @@ def train_model(
     optimizer: Callable[[], torch.optim.Optimizer | OptimizerLRSchedulerConfig]
     | None = None,
     loss: WeightedLoss | Loss | None = None,
-    property_labels: dict[Keys, str] | None = None,
+    property_labels: dict[Property, str] | None = None,
     *,
     batch_size: int = 32,
     pre_fit_model: bool = True,
@@ -46,7 +46,7 @@ def train_model(
     if property_labels is None:
         property_labels = get_existing_keys(batch)
         if not property_labels:
-            expected = [key.value for key in Keys.__members__.values()]
+            expected = [key.value for key in Property.__members__.values()]
             raise ValueError(
                 "No property_keys were provided, and none were found in "
                 f"the data. Expected at least one of: {expected}"
@@ -62,9 +62,9 @@ def train_model(
             )
 
     expected_shapes = {
-        Keys.ENERGY: (batch.n_structures,),
-        Keys.FORCES: (batch.n_atoms, 3),
-        Keys.STRESS: (batch.n_structures, 3, 3),
+        Property.ENERGY: (batch.n_structures,),
+        Property.FORCES: (batch.n_atoms, 3),
+        Property.STRESS: (batch.n_structures, 3, 3),
     }
     for key, label in property_labels.items():
         if batch[label].shape != expected_shapes[key]:
@@ -72,7 +72,7 @@ def train_model(
                 f"Expected {label} to have shape {expected_shapes[key]}, "
                 f"but found {batch[label].shape}"
             )
-    if Keys.STRESS in property_labels and not batch.has_cell:
+    if Property.STRESS in property_labels and not batch.has_cell:
         raise ValueError("Can't train on stress without cell information.")
 
     # create the data loaders
@@ -85,8 +85,8 @@ def train_model(
 
     # deal with fitting transforms
     # TODO: what if not training on energy?
-    if pre_fit_model and Keys.ENERGY in property_labels:
-        model.pre_fit(batch, property_labels[Keys.ENERGY])
+    if pre_fit_model and Property.ENERGY in property_labels:
+        model.pre_fit(batch, property_labels[Property.ENERGY])
 
     actual_loss = get_loss(loss, property_labels)
     actual_loss.fit_transform(batch)
@@ -120,10 +120,10 @@ def train_model(
     return task.load_best_weights(model, trainer)
 
 
-def get_existing_keys(batch: AtomicGraphBatch) -> dict[Keys, str]:
+def get_existing_keys(batch: AtomicGraphBatch) -> dict[Property, str]:
     return {
         key: key.value
-        for key in Keys.__members__.values()
+        for key in Property.__members__.values()
         if key.value in batch
     }
 
@@ -134,7 +134,7 @@ class LearnThePES(pl.LightningModule):
         model: GraphPESModel,
         optimizer: torch.optim.Optimizer | OptimizerLRSchedulerConfig,
         loss: WeightedLoss,
-        property_labels: dict[Keys, str],
+        property_labels: dict[Property, str],
     ):
         super().__init__()
         self.model = model
@@ -222,18 +222,18 @@ class LearnThePES(pl.LightningModule):
 
 
 def get_loss(
-    loss: WeightedLoss | Loss | None, property_labels: dict[Keys, str]
+    loss: WeightedLoss | Loss | None, property_labels: dict[Property, str]
 ) -> WeightedLoss:
     if loss is None:
         default_transforms = {
-            Keys.ENERGY: PerAtomStandardScaler(),  # TODO is this right?
-            Keys.FORCES: PerAtomScale(),
-            Keys.STRESS: Scale(),
+            Property.ENERGY: PerAtomStandardScaler(),  # TODO is this right?
+            Property.FORCES: PerAtomScale(),
+            Property.STRESS: Scale(),
         }
         default_weights = {
-            Keys.ENERGY: 1.0,
-            Keys.FORCES: 1.0,
-            Keys.STRESS: 1.0,
+            Property.ENERGY: 1.0,
+            Property.FORCES: 1.0,
+            Property.STRESS: 1.0,
         }
         return WeightedLoss(
             [

@@ -12,7 +12,7 @@ from graph_pes.transform import (
     PerAtomShift,
     Transform,
 )
-from graph_pes.util import Keys, differentiate, require_grad
+from graph_pes.util import Property, differentiate, require_grad
 from jaxtyping import Float
 from torch import Tensor, nn
 
@@ -164,7 +164,7 @@ class Ensemble(GraphPESModel):
 def get_predictions(
     pes: GraphPESModel,
     structure: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
-    property_labels: dict[Keys, str] | None = None,
+    property_labels: dict[Property, str] | None = None,
 ) -> dict[str, torch.Tensor]:
     """
     Evaluate the `pes` on `structure` to get the labels requested.
@@ -195,20 +195,20 @@ def get_predictions(
 
     if property_labels is None:
         property_labels = {
-            Keys.ENERGY: "energy",
-            Keys.FORCES: "forces",
+            Property.ENERGY: "energy",
+            Property.FORCES: "forces",
         }
         if structure.has_cell:
-            property_labels[Keys.STRESS] = "stress"
+            property_labels[Property.STRESS] = "stress"
 
     else:
-        if Keys.STRESS in property_labels and not structure.has_cell:
+        if Property.STRESS in property_labels and not structure.has_cell:
             raise ValueError("Can't predict stress without cell information.")
 
     predictions = {}
 
     # setup for calculating stress:
-    if Keys.STRESS in property_labels:
+    if Property.STRESS in property_labels:
         # The virial stress tensor is the gradient of the total energy wrt
         # an infinitesimal change in the cell parameters.
         # We therefore add this change to the cell, such that
@@ -229,15 +229,15 @@ def get_predictions(
     with require_grad(structure._positions), require_grad(change_to_cell):
         energy = pes(structure)
 
-        if Keys.ENERGY in property_labels:
-            predictions[property_labels[Keys.ENERGY]] = energy
+        if Property.ENERGY in property_labels:
+            predictions[property_labels[Property.ENERGY]] = energy
 
-        if Keys.FORCES in property_labels:
+        if Property.FORCES in property_labels:
             dE_dR = differentiate(energy, structure._positions)
-            predictions[property_labels[Keys.FORCES]] = -dE_dR
+            predictions[property_labels[Property.FORCES]] = -dE_dR
 
-        if Keys.STRESS in property_labels:
+        if Property.STRESS in property_labels:
             stress = differentiate(energy, change_to_cell)
-            predictions[property_labels[Keys.STRESS]] = stress
+            predictions[property_labels[Property.STRESS]] = stress
 
     return predictions

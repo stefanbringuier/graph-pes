@@ -14,7 +14,7 @@ from .core import GraphPESModel, get_predictions
 from .data.atomic_graph import AtomicGraph, convert_to_atomic_graphs
 from .data.batching import AtomicGraphBatch
 from .transform import Identity, Transform
-from .util import Keys
+from .util import Property
 
 _my_style = {
     "figure.figsize": (3.5, 3),
@@ -75,7 +75,7 @@ def move_axes(ax: plt.Axes | None = None):  # type: ignore
 def parity_plot(
     model: GraphPESModel,
     graphs: AtomicGraphBatch | list[AtomicGraph],
-    property: Keys,
+    property: Property,
     property_label: str | None = None,
     transform: Transform | None = None,
     units: str | None = None,
@@ -93,11 +93,11 @@ def parity_plot(
     graphs
         The graphs to make predictions on.
     property
-        The property to plot, e.g. :code:`Keys.ENERGY`.
+        The property to plot, e.g. :code:`Property.ENERGY`.
     property_label
         The string that the property is indexed by on the graphs. If not
         provided, defaults to the value of :code:`property`, e.g.
-        :code:`Keys.ENERGY` :math:`\rightarrow` :code:`"energy"`.
+        :code:`Property.ENERGY` :math:`\rightarrow` :code:`"energy"`.
     transform
         The transform to apply to the predictions and labels before plotting.
         If not provided, no transform is applied.
@@ -115,7 +115,7 @@ def parity_plot(
 
     .. code-block:: python
 
-        parity_plot(model, train, Keys.ENERGY)
+        parity_plot(model, train, Property.ENERGY)
 
     .. image:: notebooks/Cu-LJ-default-parity.svg
         :align: center
@@ -136,7 +136,7 @@ def parity_plot(
             parity_plot(
                 model,
                 data,
-                Keys.ENERGY,
+                Property.ENERGY,
                 transform=DividePerAtom(),
                 units="eV / atom",
                 label=name,

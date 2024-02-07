@@ -4,7 +4,7 @@ from ase import Atoms
 from graph_pes.core import get_predictions
 from graph_pes.data import AtomicGraphBatch, convert_to_atomic_graph
 from graph_pes.models.pairwise import LennardJones
-from graph_pes.util import Keys
+from graph_pes.util import Property
 
 no_pbc = convert_to_atomic_graph(
     Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)], pbc=False),
@@ -18,9 +18,9 @@ pbc = convert_to_atomic_graph(
 
 def test_predictions():
     expected_shapes = {
-        Keys.ENERGY: (),
-        Keys.FORCES: (2, 3),
-        Keys.STRESS: (3, 3),
+        Property.ENERGY: (),
+        Property.FORCES: (2, 3),
+        Property.STRESS: (3, 3),
     }
 
     model = LennardJones()
@@ -30,39 +30,41 @@ def test_predictions():
     predictions = get_predictions(model, no_pbc)
     assert set(predictions.keys()) == {"energy", "forces"}
 
-    for key in Keys.ENERGY, Keys.FORCES:
+    for key in Property.ENERGY, Property.FORCES:
         assert predictions[key.value].shape == expected_shapes[key]
 
     # if we ask for stress, we get an error:
     with pytest.raises(ValueError):
-        get_predictions(model, no_pbc, {Keys.STRESS: "stress"})
+        get_predictions(model, no_pbc, {Property.STRESS: "stress"})
 
     # with pbc structures, we should get all three predictions
     predictions = get_predictions(model, pbc)
     assert set(predictions.keys()) == {"energy", "forces", "stress"}
 
-    for key in Keys.ENERGY, Keys.FORCES, Keys.STRESS:
+    for key in Property.ENERGY, Property.FORCES, Property.STRESS:
         assert predictions[key.value].shape == expected_shapes[key]
 
     # check that requesting a subset of predictions works, and that
     # the names are correctly mapped:
-    predictions = get_predictions(model, no_pbc, {Keys.ENERGY: "total_energy"})
+    predictions = get_predictions(
+        model, no_pbc, {Property.ENERGY: "total_energy"}
+    )
     assert set(predictions.keys()) == {"total_energy"}
-    assert predictions["total_energy"].shape == expected_shapes[Keys.ENERGY]
+    assert predictions["total_energy"].shape == expected_shapes[Property.ENERGY]
 
 
 def test_batched_prediction():
     batch = AtomicGraphBatch.from_graphs([pbc, pbc])
 
     expected_shapes = {
-        Keys.ENERGY: (2,),  # two structures
-        Keys.FORCES: (4, 3),  # four atoms
-        Keys.STRESS: (2, 3, 3),  # two structures
+        Property.ENERGY: (2,),  # two structures
+        Property.FORCES: (4, 3),  # four atoms
+        Property.STRESS: (2, 3, 3),  # two structures
     }
 
     predictions = get_predictions(LennardJones(), batch)
 
-    for key in Keys.ENERGY, Keys.FORCES, Keys.STRESS:
+    for key in Property.ENERGY, Property.FORCES, Property.STRESS:
         assert predictions[key.value].shape == expected_shapes[key]
 
 
