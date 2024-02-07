@@ -67,25 +67,23 @@ class Interaction(nn.Module):
         Float[Tensor, "graph.n_atoms self.internal_dim 3"],
         Float[Tensor, "graph.n_atoms self.internal_dim"],
     ]:
-        central_atoms, neighbours = graph.neighbour_index
-        d = graph.neighbour_distances.unsqueeze(-1)
-        unit_vectors = graph.neighbour_vectors / d
+        central_atoms, neighbours = graph.neighbour_index  # (E,)
+        d = graph.neighbour_distances.unsqueeze(-1)  # (E, 1)
+        unit_vectors = graph.neighbour_vectors / d  # (E, 3)
 
         # continous filter message creation
         x_ij = self.filter_generator(d) * self.φ(scalar_embeddings)[neighbours]
-        a, b, c = torch.split(x_ij, self.internal_dim, dim=-1)
+        a, b, c = torch.split(x_ij, self.internal_dim, dim=-1)  # (E, D)
 
         # simple sum over neighbours to get scalar messages
-        Δs = torch.zeros_like(scalar_embeddings)
-        Δs.scatter_add_(0, neighbours.unsqueeze(-1).expand_as(a), a)
+        Δs = torch.zeros_like(scalar_embeddings)  # (N, D)
+        Δs.scatter_add_(0, neighbours.view(-1, 1).expand_as(a), a)
 
         # create vector messages
-        v_ij = (
-            b.unsqueeze(-1) * unit_vectors.unsqueeze(1)
-            + c.unsqueeze(-1) * vector_embeddings[neighbours]
-        )
+        v_ij = (b * unit_vectors).unsqueeze(-1)  # (E, D, 3)
+        v_ij = v_ij + c.unsqueeze(-1) * vector_embeddings[neighbours]
 
-        Δv = torch.zeros_like(vector_embeddings)
+        Δv = torch.zeros_like(vector_embeddings)  # (N, D, 3)
         Δv.scatter_add_(
             0, neighbours.unsqueeze(-1).unsqueeze(-1).expand_as(v_ij), v_ij
         )
@@ -137,22 +135,22 @@ class Update(nn.Module):
         Float[Tensor, "batch self.internal_dim 3"],
         Float[Tensor, "batch self.internal_dim"],
     ]:
-        u = self.U(vector_embeddings)
-        v = self.V(vector_embeddings)
+        u = self.U(vector_embeddings)  # (N, D, 3)
+        v = self.V(vector_embeddings)  # (N, D, 3)
 
         # stack scalar message and the norm of v
-        m = torch.cat([scalar_embeddings, v.norm(dim=-1)], dim=-1)
-        m = self.mlp(m)
+        m = torch.cat([scalar_embeddings, v.norm(dim=-1)], dim=-1)  # (N, 2D)
+        m = self.mlp(m)  # (N, 3D)
 
         # split the update into 3 parts
-        a, b, c = torch.split(m, self.internal_dim, dim=-1)
+        a, b, c = torch.split(m, self.internal_dim, dim=-1)  # (N, D)
 
         # vector update:
-        Δv = u * a.unsqueeze(-1)
+        Δv = u * a.unsqueeze(-1)  # (N, D, 3)
 
         # scalar update:
-        dot = torch.sum(u * v, dim=-1)
-        Δs = b + c * dot
+        dot = torch.sum(u * v, dim=-1)  # (N, D)
+        Δs = b + c * dot  # (N, D)
 
         return Δv, Δs
 
@@ -227,10 +225,7 @@ class PaiNN(GraphPESModel):
             vector_embeddings = vector_embeddings + Δv
             scalar_embeddings = scalar_embeddings + Δs
 
-            Δv, Δs = update(
-                vector_embeddings,
-                scalar_embeddings,
-            )
+            Δv, Δs = update(vector_embeddings, scalar_embeddings)
             vector_embeddings = vector_embeddings + Δv
             scalar_embeddings = scalar_embeddings + Δs
 
