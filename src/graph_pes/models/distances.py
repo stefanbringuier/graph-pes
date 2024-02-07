@@ -423,6 +423,7 @@ class CosineEnvelope(Envelope):
         self.cutoff = cutoff
 
     def forward(self, r: torch.Tensor) -> torch.Tensor:
+        r = r.unsqueeze(-1)
         cos = 0.5 * (1 + torch.cos(π * r / self.cutoff))
         return torch.where(r <= self.cutoff, cos, torch.tensor(0.0))
 

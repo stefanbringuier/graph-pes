@@ -5,8 +5,18 @@ from jaxtyping import Float
 from torch import Tensor, nn
 
 from ..data import AtomicGraph
-from ..nn import MLP, PerSpeciesEmbedding
+from ..nn import MLP, HaddamardProduct, PerSpeciesEmbedding
 from .distances import CosineEnvelope, ExponentialRBF
+
+
+def decompose_tensor(tensor):
+    """Full tensor decomposition into irreducible components."""
+    I = (tensor.diagonal(offset=0, dim1=-1, dim2=-2)).mean(-1)[
+        ..., None, None
+    ] * torch.eye(3, 3, device=tensor.device, dtype=tensor.dtype)
+    A = 0.5 * (tensor - tensor.transpose(-2, -1))
+    S = 0.5 * (tensor + tensor.transpose(-2, -1)) - I
+    return I, A, S
 
 
 class EdgeEmbedding(nn.Module):
@@ -56,13 +66,15 @@ class EdgeEmbedding(nn.Module):
         cutoff: float,
     ):
         super().__init__()
-        self.embedding_size = embedding_size
-
         self.z_embedding = PerSpeciesEmbedding(embedding_size)
-        self.radial_expansion = ExponentialRBF(radial_features, cutoff)
-        self.envelope = CosineEnvelope(cutoff)
         self.z_map = nn.Linear(2 * embedding_size, embedding_size, bias=False)
-        self.r_map = nn.Linear(radial_features, 3 * embedding_size)
+        self.distance_embedding = HaddamardProduct(
+            nn.Sequential(
+                ExponentialRBF(radial_features, cutoff),
+                nn.Linear(radial_features, 3 * embedding_size),
+            ),
+            CosineEnvelope(cutoff),
+        )
 
     def forward(
         self, graph: AtomicGraph
@@ -75,28 +87,17 @@ class EdgeEmbedding(nn.Module):
         I_0, A_0, S_0 = self._initial_edge_embeddings(graph)  # (E, 1, 3, 3)
 
         # 2. encode atomic species
-        # - get embeddings per atom
         h_z_atom = self.z_embedding(graph.Z)  # (N, C)
-        # - combine atom embeddings for each edge
-        h_z_edge = h_z_atom[graph.neighbour_index]  # (E, 2, C)
-        # - concat along last axis
-        h_z_edge = h_z_edge.reshape(-1, 2 * h_z_atom.shape[-1])  # (E, 2C)
-        # - ... and map to embedding size
+        C = h_z_atom.shape[-1]
+        h_z_edge = h_z_atom[graph.neighbour_index].reshape(-1, 2 * C)  # (E, 2C)
         h_z_edge = self.z_map(h_z_edge)  # (E, C)
 
         # 3. embed edge distances
-        expansion_r = self.radial_expansion(graph.neighbour_distances)  # (E, K)
-        env = self.envelope(graph.neighbour_distances)  # (E,)
+        h_r = self.distance_embedding(graph.neighbour_distances)  # (E, 3C)
 
-        # combine information into coefficients
-        c = (
-            self.r_map(expansion_r)
-            * env[..., None]
-            * h_z_edge.repeat(1, 3)  # (E, 3C)
-        )  # (E, 3C)
-        c_I, c_A, c_S = torch.split(
-            c[..., None, None], self.embedding_size, dim=1
-        )  # (E, C, 1, 1)
+        # 4. combine information into coefficients
+        c = (h_r * h_z_edge.repeat(1, 3))[..., None, None]  # (E, 3C, 1, 1)
+        c_I, c_A, c_S = torch.chunk(c, 3, dim=1)  # (E, C, 1, 1)
 
         return c_I * I_0, c_A * A_0, c_S * S_0
 
@@ -204,8 +205,9 @@ class Embedding(nn.Module):
         central_atom, neighbours = graph.neighbour_index  # (E,)
 
         def sum_per_atom(edge_tensor: Tensor) -> Tensor:
-            shape = (graph.n_atoms, self.edge_embedding.embedding_size, 3, 3)
-            atom_tensor = torch.zeros(*shape, device=graph.Z.device)
+            atom_tensor = torch.zeros(
+                graph.n_atoms, edge_tensor.shape[1], 3, 3, device=graph.Z.device
+            )
             atom_tensor.scatter_add_(
                 0,
                 central_atom[:, None, None, None].expand_as(edge_tensor),
@@ -219,13 +221,8 @@ class Embedding(nn.Module):
 
         norms = frobenius_norm(I_atom + A_atom + S_atom)  # (N, C)
         norms = self.layer_norm(norms)
-        coefficients = self.mlp(norms)  # (N, 3C)
-
-        c_I, c_A, c_S = torch.split(
-            coefficients[..., None, None],
-            self.edge_embedding.embedding_size,
-            dim=1,
-        )  # (N, C, 1, 1)
+        coefficients = self.mlp(norms)[..., None, None]  # (N, 3C, 1, 1)
+        c_I, c_A, c_S = torch.chunk(coefficients, 3, dim=1)  # (N, C, 1, 1)
 
         X = (
             c_I * self.W_I(I_atom)
@@ -234,3 +231,68 @@ class Embedding(nn.Module):
         )  # (N, C, 3, 3)
 
         return X
+
+
+class Interaction(nn.Module):
+    def __init__(
+        self,
+        radial_features: int,
+        embedding_size: int,
+        cutoff: float,
+    ):
+        super().__init__()
+        self.mlp = MLP(
+            layers=[embedding_size, 2 * embedding_size, 3 * embedding_size],
+            activation=nn.SiLU(),
+            activate_last=True,
+        )
+
+        self.tensor_linears: list[TensorLinear] = nn.ModuleList(
+            [TensorLinear(embedding_size, embedding_size) for _ in range(6)]
+        )  # type: ignore
+
+        self.distance_embedding = HaddamardProduct(
+            nn.Sequential(
+                ExponentialRBF(radial_features, cutoff),
+                nn.Linear(radial_features, 3 * embedding_size),
+            ),
+            CosineEnvelope(cutoff),
+        )
+
+    def forward(
+        self,
+        X: Float[Tensor, "graph.n_atoms self.embedding_size 3 3"],
+        graph: AtomicGraph,
+    ) -> Float[Tensor, "graph.n_atoms self.embedding_size 3 3"]:
+        X = X / (frobenius_norm(X)[..., None, None] + 1)  # (N, C, 3, 3)
+        I, A, S = decompose_tensor(X)  # (N, C, 3, 3)
+
+        # update I, A, S
+        Y: Float[Tensor, "N C 3 3"] = sum(
+            t(Z) for t, Z in zip(self.tensor_linears, (I, A, S))
+        )  # type: ignore
+
+        # edge-wise mixing
+        central_atom, neighbours = graph.neighbour_index  # (E,)
+        coeffecients = self.distance_embedding(
+            graph.neighbour_distances
+        )  # (E, 3C)
+        f_I, f_A, f_S = torch.chunk(
+            coeffecients[..., None, None], 3, dim=1
+        )  # (E, C, 1, 1)
+
+        M_ij = f_I * I[neighbours] + f_A * A[neighbours] + f_S * S[neighbours]
+        M_i = torch.zeros_like(X)  # (N, C, 3, 3)
+        M_i.scatter_add_(
+            0, neighbours[:, None, None, None].expand_as(M_ij), M_ij
+        )
+
+        # scalar/vector/tensor mixing
+        Y = Y @ M_i + M_i @ Y  # (N, C, 3, 3)
+        norm = frobenius_norm(Y + 1)[..., None, None]  # (N, C, 1, 1)
+        I, A, S = decompose_tensor(Y / norm)  # (N, C, 3, 3)
+        Y: Float[Tensor, "N C 3 3"] = sum(
+            t(Z) for t, Z in zip(self.tensor_linears[3:], (I, A, S))
+        )  # type: ignore
+
+        return Y + torch.matrix_power(Y, 2)  # (N, C, 3, 3)
