@@ -107,7 +107,9 @@ def train_model(
     trainer.fit(task, train_loader, val_loader)
 
     # load the best weights
-    return task.load_best_weights(model, trainer)
+    task.load_best_weights(model, trainer)
+
+    return model
 
 
 def get_existing_properties(graph: AtomicGraph) -> list[PropertyKey]:
@@ -193,7 +195,7 @@ class LearnThePES(pl.LightningModule):
         model: GraphPESModel,
         trainer: pl.Trainer | None = None,
         checkpoint_path: Path | str | None = None,
-    ) -> GraphPESModel:
+    ):
         if checkpoint_path is None and trainer is None:
             raise ValueError(
                 "Either trainer or checkpoint_path must be provided"
@@ -209,7 +211,6 @@ class LearnThePES(pl.LightningModule):
             if k.startswith("model.")
         }
         model.load_state_dict(state_dict)
-        return model
 
 
 def process_loss(
