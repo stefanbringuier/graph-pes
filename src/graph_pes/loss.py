@@ -149,6 +149,7 @@ class Loss(nn.Module):
         return self.__add__(other)
 
 
+# TODO: callable weights
 class WeightedLoss(torch.nn.Module):
     r"""
     A lightweight wrapper around a collection of weighted losses.

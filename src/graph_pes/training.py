@@ -75,7 +75,6 @@ def train_model(
     )
 
     # deal with fitting transforms
-    # TODO: what if not training on energy?
     if pre_fit_model and Property.ENERGY in training_on:
         model.pre_fit(train_batch)
     total_loss.fit_transform(train_batch)
@@ -147,7 +146,9 @@ class LearnThePES(pl.LightningModule):
             )
 
         # generate prediction:
-        predictions = self.model.predict(graph, self.properties, training=True)
+        predictions = self.model.predict(
+            graph, properties=self.properties, training=True
+        )
 
         # compute the losses
         total_loss = torch.scalar_tensor(0.0, device=self.device)

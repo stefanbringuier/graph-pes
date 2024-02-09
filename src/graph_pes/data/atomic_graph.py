@@ -375,6 +375,9 @@ def extract_tensors(
     return tensor_dict
 
 
+# TODO: move to being class method?
+# TODO: generalised edge creation? i.e. not just cutoff, but arbitrary method
+#     and can then have radius_cutoff class, k nearest neighbours etc.
 def convert_to_atomic_graphs(
     structures: Iterable[ase.Atoms] | ase.Atoms,
     cutoff: float,

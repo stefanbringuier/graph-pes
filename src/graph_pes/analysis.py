@@ -159,9 +159,7 @@ def parity_plot(
 
     ground_truth = transform(graphs[property_label], graphs).detach()
     predictions = transform(
-        # TODO: use overload
-        model.predict(graphs, [property])[property],
-        graphs,
+        model.predict(graphs, property=property), graphs
     ).detach()
 
     # plot

@@ -34,7 +34,7 @@ def test_predictions():
 
     # if we ask for stress, we get an error:
     with pytest.raises(ValueError):
-        model.predict(no_pbc, ["stress"])
+        model.predict(no_pbc, property="stress")
 
     # with pbc structures, we should get all three predictions
     predictions = model.predict(pbc)

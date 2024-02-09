@@ -1,20 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Literal, Sequence
+from typing import Literal, Sequence, overload
 
 import torch
 from graph_pes.data import AtomicGraph
 from graph_pes.data.batching import AtomicGraphBatch, sum_per_structure
-from graph_pes.transform import (
-    Chain,
-    Identity,
-    PerAtomScale,
-    PerAtomShift,
-    Transform,
-)
+from graph_pes.transform import Identity, PerAtomStandardScaler, Transform
 from graph_pes.util import Property, PropertyKey, differentiate, require_grad
-from jaxtyping import Float
+from jaxtyping import Float  # TODO: use this throughout
 from torch import Tensor, nn
 
 
@@ -30,23 +24,16 @@ class GraphPESModel(nn.Module, ABC):
     To create such a model, implement :meth:`predict_local_energies`,
     which takes an :class:`AtomicGraph`, or an :class:`AtomicGraphBatch`,
     and returns a per-atom prediction of the local energy. For a simple example,
-    see :class:`LennardJones <graph_pes.models.pairwise.LennardJones>`.
+    see the :class:`PairPotential <graph_pes.models.pairwise.PairPotential>`
+    `implementation <_modules/graph_pes/models/pairwise.html#PairPotential>`_.
 
     Under the hood, :class:`GraphPESModel` contains an
     :class:`EnergySummation` module, which is responsible for
     summing over local energies to obtain the total energy/ies,
     with optional transformations of the local and total energies.
     By default, this learns a per-species, local energy offset and scale.
-
-    .. note::
-        All :class:`GraphPESModel` instances are also instances of
-        :class:`torch.nn.Module`. This allows for easy optimisation
-        of parameters, and automated save/load functionality.
     """
 
-    # TODO: fix this for the case of an isolated atom, either by itself
-    # or within a batch: perhaps that should go in sum_per_structure?
-    # or maybe default to a local scale followed by a global peratomshift?
     @abstractmethod
     def predict_local_energies(
         self, graph: AtomicGraph | AtomicGraphBatch
@@ -81,14 +68,6 @@ class GraphPESModel(nn.Module, ABC):
         self.energy_summation = EnergySummation()
 
     def __add__(self, other: GraphPESModel) -> Ensemble:
-        """
-        A convenient way to create a summation of two models.
-
-        Examples
-        --------
-        >>> TwoBody() + ThreeBody()
-        Ensemble([TwoBody(), ThreeBody()], aggregation=sum)
-        """
         return Ensemble([self, other], aggregation="sum")
 
     def pre_fit(self, graphs: AtomicGraphBatch):
@@ -101,6 +80,11 @@ class GraphPESModel(nn.Module, ABC):
         output by the underlying model will result in energy predictions
         that are distributed according to the training data.
 
+        For an example customisation of this method, see the
+        :class:`LennardJones <graph_pes.models.pairwise.LennardJones>`
+        `implementation
+        <_modules/graph_pes/models/pairwise.html#LennardJones>`_.
+
         Parameters
         ----------
         graphs
@@ -108,16 +92,47 @@ class GraphPESModel(nn.Module, ABC):
         """
         self.energy_summation.fit_to_graphs(graphs)
 
-    # TODO: overload to get single property if passed
+    @overload
+    def predict(
+        self,
+        graph: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
+        *,
+        training: bool = False,
+    ) -> dict[PropertyKey, Tensor]:
+        ...
+
+    @overload
+    def predict(
+        self,
+        graph: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
+        *,
+        properties: Sequence[PropertyKey],
+        training: bool = False,
+    ) -> dict[PropertyKey, Tensor]:
+        ...
+
+    @overload
+    def predict(
+        self,
+        graph: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
+        *,
+        property: PropertyKey,
+        training: bool = False,
+    ) -> Tensor:
+        ...
+
     # TODO: implement max batch size
     def predict(
         self,
         graph: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
-        properties: Sequence[PropertyKey] | None = None,  # type: ignore
+        *,
+        properties: Sequence[PropertyKey] | None = None,
+        property: PropertyKey | None = None,
         training: bool = False,
-    ) -> dict[PropertyKey, torch.Tensor]:
+    ) -> dict[PropertyKey, Tensor] | Tensor:
         """
-        Evaluate the model on the given structure to get the labels requested.
+        Evaluate the model on the given structure to get
+        the properties requested.
 
         Parameters
         ----------
@@ -128,8 +143,12 @@ class GraphPESModel(nn.Module, ABC):
             :code:`[Property.ENERGY, Property.FORCES]` if the structure
             has no cell, and :code:`[Property.ENERGY, Property.FORCES,
             Property.STRESS]` if it does.
+        property
+            The property to predict. Can't be used when :code:`properties`
+            is also provided.
         training
-            Whether the model is currently being trained.
+            Whether the model is currently being trained. If :code:`False`,
+            the gradients of the predictions will be detached.
 
         Returns
         -------
@@ -138,24 +157,31 @@ class GraphPESModel(nn.Module, ABC):
 
         Examples
         --------
-        >>> # TODO
-
+        >>> model.predict(graph_pbc)
+        {'energy': tensor(-12.3), 'forces': tensor(...), 'stress': tensor(...)}
+        >>> model.predict(graph_no_pbc)
+        {'energy': tensor(-12.3), 'forces': tensor(...)}
+        >>> model.predict(graph_pbc, property="energy")
+        tensor(-12.3)
         """
+
+        # check correctly called
+        if property is not None and properties is not None:
+            raise ValueError("Can't specify both `property` and `properties`")
 
         if isinstance(graph, list):
             graph = AtomicGraphBatch.from_graphs(graph)
 
         if properties is None:
-            properties: list[PropertyKey] = [Property.ENERGY, Property.FORCES]
             if graph.has_cell:
-                properties.append(Property.STRESS)
-        # elif isinstance(properties, str):
-        #     properties = [properties]
+                properties = [Property.ENERGY, Property.FORCES, Property.STRESS]
+            else:
+                properties = [Property.ENERGY, Property.FORCES]
 
         if Property.STRESS in properties and not graph.has_cell:
             raise ValueError("Can't predict stress without cell information.")
 
-        predictions = {}
+        predictions: dict[PropertyKey, Tensor] = {}
 
         # setup for calculating stress:
         if Property.STRESS in properties:
@@ -193,10 +219,31 @@ class GraphPESModel(nn.Module, ABC):
         if not training:
             for key, value in predictions.items():
                 predictions[key] = value.detach()
+
+        if property is not None:
+            return predictions[property]
+
         return predictions
 
 
 class EnergySummation(nn.Module):
+    """
+    A module for summing local energies to obtain the total energy.
+
+    Before summation, :code:`local_transform` is applied to the local energies.
+    After summation, :code:`total_transform` is applied to the total energy.
+
+    By default, :code:`EnergySummation()` learns a per-species, local energy
+    offset and scale.
+
+    Parameters
+    ----------
+    local_transform
+        A transformation of the local energies.
+    total_transform
+        A transformation of the total energy.
+    """
+
     def __init__(
         self,
         local_transform: Transform | None = None,
@@ -206,19 +253,35 @@ class EnergySummation(nn.Module):
 
         # if both None, default to a per-species, local energy offset
         if local_transform is None and total_transform is None:
-            local_transform = Chain(
-                [PerAtomShift(), PerAtomScale()], trainable=True
-            )
+            local_transform = PerAtomStandardScaler()
         self.local_transform: Transform = local_transform or Identity()
         self.total_transform: Transform = total_transform or Identity()
 
     def forward(self, local_energies: torch.Tensor, graph: AtomicGraphBatch):
+        """
+        Sum the local energies to obtain the total energy.
+
+        Parameters
+        ----------
+        local_energies
+            The local energies.
+        graph
+            The graph representation of the structure/s.
+        """
         local_energies = self.local_transform.inverse(local_energies, graph)
         total_E = sum_per_structure(local_energies, graph)
         total_E = self.total_transform.inverse(total_E, graph)
         return total_E
 
     def fit_to_graphs(self, graphs: AtomicGraphBatch | list[AtomicGraph]):
+        """
+        Fit the transforms to the training data.
+
+        Parameters
+        ----------
+        graphs
+            The training data.
+        """
         if not isinstance(graphs, AtomicGraphBatch):
             graphs = AtomicGraphBatch.from_graphs(graphs)
 
@@ -256,17 +319,26 @@ class Ensemble(GraphPESModel):
 
     Examples
     --------
+    Create a model with explicit two-body and multi-body terms:
 
-    >>> from graph_pes.models.pairwise import LennardJones
-    >>> from graph_pes.models.schnet import SchNet
-    >>> from graph_pes.core import Ensemble
-    >>> # create an ensemble of two models
-    >>> # equivalent to Ensemble([LennardJones(), SchNet()], aggregation="sum")
-    >>> ensemble = LennardJones() + SchNet()
+    .. code-block:: python
 
-    See Also
-    --------
-    :meth:`GraphPESModel.__add__`
+        from graph_pes.models.pairwise import LennardJones
+        from graph_pes.models.schnet import SchNet
+        from graph_pes.core import Ensemble
+
+        # create an ensemble of two models
+        # equivalent to Ensemble([LennardJones(), SchNet()], aggregation="sum")
+        ensemble = LennardJones() + SchNet()
+
+    Use several models to get an average prediction:
+
+    .. code-block:: python
+
+        models = ... # load/train your models
+        ensemble = Ensemble(models, aggregation="mean")
+        predictions = ensemble.predict(test_graphs)
+        ...
     """
 
     def __init__(

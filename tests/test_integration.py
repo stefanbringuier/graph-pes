@@ -13,7 +13,7 @@ def test_integration():
     model = LennardJones()
 
     loss = Loss("energy")
-    before = loss(model.predict(batch, ["energy"]), batch)
+    before = loss(model(batch), batch)
 
     train_model(
         model,
@@ -25,6 +25,6 @@ def test_integration():
         callbacks=[],
     )
 
-    after = loss(model.predict(batch, ["energy"]), batch)
+    after = loss(model(batch), batch)
 
     assert after < before, "training did not improve the loss"
