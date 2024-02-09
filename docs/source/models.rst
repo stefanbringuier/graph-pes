@@ -28,6 +28,7 @@ Helper Classes and Functions
 .. toctree::
    :maxdepth: 2
 
+   models/ensembling
    models/distances
    models/nn
 

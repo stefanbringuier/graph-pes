@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Literal
 
 import torch
 from graph_pes.data import AtomicGraph
@@ -89,7 +90,7 @@ class GraphPESModel(nn.Module, ABC):
         Ensemble([TwoBody(), ThreeBody()], aggregation=sum)
         """
 
-        return Ensemble([self, other], mean=False)
+        return Ensemble([self, other], aggregation="sum")
 
     def pre_fit(self, graphs: AtomicGraphBatch, energy_label: str = "energy"):
         """
@@ -144,18 +145,74 @@ class EnergySummation(nn.Module):
 
 
 class Ensemble(GraphPESModel):
-    def __init__(self, models: list[GraphPESModel], mean: bool = True):
+    """
+    An ensemble of :class:`GraphPESModel` models.
+
+    Parameters
+    ----------
+    models
+        the models to ensemble.
+    aggregation
+        the method of aggregating the predictions of the models.
+    weights
+        scalar weights for combining each model's prediction.
+    trainable_weights
+        whether the weights are trainable.
+
+    Examples
+    --------
+
+    >>> from graph_pes.models.pairwise import LennardJones
+    >>> from graph_pes.models.schnet import SchNet
+    >>> from graph_pes.core import Ensemble
+    >>> # create an ensemble of two models
+    >>> # equivalent to Ensemble([LennardJones(), SchNet()], aggregation="sum")
+    >>> ensemble = LennardJones() + SchNet()
+
+    See Also
+    --------
+    :meth:`GraphPESModel.__add__`
+    """
+
+    def __init__(
+        self,
+        models: list[GraphPESModel],
+        aggregation: Literal["mean", "sum"] = "mean",
+        weights: list[float] | None = None,
+        trainable_weights: bool = False,
+    ):
         super().__init__()
         self.models: list[GraphPESModel] = nn.ModuleList(models)  # type: ignore
-        self.mean = mean
+        self.aggregation = aggregation
+        self.weights = nn.Parameter(
+            torch.tensor(
+                weights or [1.0] * len(models), requires_grad=trainable_weights
+            )
+        )
+
+        # use the energy summation of each model separately
+        self.energy_summation = None
 
     def predict_local_energies(self, graph: AtomicGraph | AtomicGraphBatch):
-        s = sum(m.predict_local_energies(graph).squeeze() for m in self.models)
-        return s / len(self.models) if self.mean else s
+        raise NotImplementedError(
+            "Ensemble models don't have a single local energy prediction."
+        )
+
+    def forward(self, graph: AtomicGraph | AtomicGraphBatch):
+        predictions: Tensor = sum(
+            w * model(graph) for w, model in zip(self.weights, self.models)
+        )  # type: ignore
+        if self.aggregation == "mean":
+            return predictions / self.weights.sum()
+        else:
+            return predictions
 
     def __repr__(self):
-        aggregation = "mean" if self.mean else "sum"
-        return f"Ensemble({self.models}, aggregation={aggregation})"
+        info = [str(self.models), f"aggregation={self.aggregation}"]
+        if self.weights.requires_grad:
+            info.append(f"weights={self.weights.tolist()}")
+        info = "\n  ".join(info)
+        return f"Ensemble(\n  {info}\n)"
 
 
 # TODO: add training flag to this so that we don't create the graph needlessly

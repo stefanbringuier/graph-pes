@@ -17,7 +17,7 @@ class Loss(nn.Module):
     e.g. normalisation, such that the loss value takes on "nice" values,
     and that the resulting gradients and parameter updates are well-behaved.
 
-    :class:`Loss`'s in `graph-pes` are thus lightweight wrappers around:
+    :class:`Loss`'s in :code:`graph-pes` are thus lightweight wrappers around:
 
     * an (optional) pre-transform, :math:`T`
     * a loss metric, :math:`M`.
@@ -256,6 +256,5 @@ class MeanVectorPercentageError(torch.nn.Module):
         self, input: torch.Tensor, target: torch.Tensor
     ) -> torch.Tensor:
         return (
-            (input - target).norm(dim=-1)
-            / (target.norm(dim=-1) + self.epsilon)
+            (input - target).norm(dim=-1) / (target.norm(dim=-1) + self.epsilon)
         ).mean()
