@@ -1,5 +1,4 @@
 from ase.io import read
-from graph_pes.core import get_predictions
 from graph_pes.data.atomic_graph import convert_to_atomic_graphs
 from graph_pes.data.batching import AtomicGraphBatch
 from graph_pes.models.pairwise import LennardJones
@@ -14,7 +13,7 @@ def test_integration():
     model = LennardJones()
 
     loss = Loss("energy")
-    before = loss(get_predictions(model, batch, ["energy"]), batch)
+    before = loss(model.predict(batch, ["energy"]), batch)
 
     train_model(
         model,
@@ -26,6 +25,6 @@ def test_integration():
         callbacks=[],
     )
 
-    after = loss(get_predictions(model, batch, ["energy"]), batch)
+    after = loss(model.predict(batch, ["energy"]), batch)
 
     assert after < before, "training did not improve the loss"

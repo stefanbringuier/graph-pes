@@ -10,7 +10,7 @@ from ase import Atoms
 from cycler import cycler
 from matplotlib.ticker import MaxNLocator
 
-from .core import GraphPESModel, get_predictions
+from .core import GraphPESModel
 from .data.atomic_graph import AtomicGraph, convert_to_atomic_graphs
 from .data.batching import AtomicGraphBatch
 from .transform import Identity, Transform
@@ -159,8 +159,8 @@ def parity_plot(
 
     ground_truth = transform(graphs[property_label], graphs).detach()
     predictions = transform(
-        # TOOD: use overload
-        get_predictions(model, graphs, [property])[property],
+        # TODO: use overload
+        model.predict(graphs, [property])[property],
         graphs,
     ).detach()
 

@@ -1,7 +1,6 @@
 import pytest
 import torch
 from ase import Atoms
-from graph_pes.core import get_predictions
 from graph_pes.data import AtomicGraphBatch, convert_to_atomic_graph
 from graph_pes.models.pairwise import LennardJones
 from graph_pes.util import Property
@@ -27,7 +26,7 @@ def test_predictions():
 
     # by default, get_predictions returns energy and forces on
     # structures with no cell:
-    predictions = get_predictions(model, no_pbc)
+    predictions = model.predict(no_pbc)
     assert set(predictions.keys()) == {"energy", "forces"}
 
     for key in Property.ENERGY, Property.FORCES:
@@ -35,10 +34,10 @@ def test_predictions():
 
     # if we ask for stress, we get an error:
     with pytest.raises(ValueError):
-        get_predictions(model, no_pbc, ["stress"])
+        model.predict(no_pbc, ["stress"])
 
     # with pbc structures, we should get all three predictions
-    predictions = get_predictions(model, pbc)
+    predictions = model.predict(pbc)
     assert set(predictions.keys()) == {"energy", "forces", "stress"}
 
     for key in Property.ENERGY, Property.FORCES, Property.STRESS:
@@ -54,7 +53,7 @@ def test_batched_prediction():
         Property.STRESS: (2, 3, 3),  # two structures
     }
 
-    predictions = get_predictions(LennardJones(), batch)
+    predictions = LennardJones().predict(batch)
 
     for key in Property.ENERGY, Property.FORCES, Property.STRESS:
         assert predictions[key].shape == expected_shapes[key]
@@ -65,5 +64,5 @@ def test_isolated_atom():
     graph = convert_to_atomic_graph(atom, cutoff=1.5)
     assert graph.n_edges == 0
 
-    predictions = get_predictions(LennardJones(), graph)
+    predictions = LennardJones().predict(graph)
     assert torch.allclose(predictions["forces"], torch.zeros(1, 3))

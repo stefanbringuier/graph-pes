@@ -108,6 +108,89 @@ class GraphPESModel(nn.Module, ABC):
         """
         self.energy_summation.fit_to_graphs(graphs, energy_label)
 
+    # TODO: overload to get single property if passed
+    # TODO: implement max batch size
+    def predict(
+        self,
+        graph: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
+        properties: Sequence[PropertyKey] | None = None,  # type: ignore
+        training: bool = False,
+    ) -> dict[PropertyKey, torch.Tensor]:
+        """
+        Evaluate the model on the given structure to get the labels requested.
+
+        Parameters
+        ----------
+        structure
+            The atomic structure to evaluate.
+        property_labels
+            The names of the properties to return. If None, all available
+            properties are returned.
+
+        Returns
+        -------
+        dict[str, torch.Tensor]
+            The requested properties.
+
+        Examples
+        --------
+        >>> # TODO
+
+        """
+
+        if isinstance(graph, list):
+            graph = AtomicGraphBatch.from_graphs(graph)
+
+        if properties is None:
+            properties: list[PropertyKey] = [Property.ENERGY, Property.FORCES]
+            if graph.has_cell:
+                properties.append(Property.STRESS)
+        # elif isinstance(properties, str):
+        #     properties = [properties]
+
+        if Property.STRESS in properties and not graph.has_cell:
+            raise ValueError("Can't predict stress without cell information.")
+
+        predictions = {}
+
+        # setup for calculating stress:
+        if Property.STRESS in properties:
+            # The virial stress tensor is the gradient of the total energy wrt
+            # an infinitesimal change in the cell parameters.
+            # We therefore add this change to the cell, such that
+            # we can calculate the gradient wrt later if required.
+            #
+            # See <> TODO: find reference
+            actual_cell = graph.cell
+            change_to_cell = torch.zeros_like(actual_cell, requires_grad=True)
+            symmetric_change = 0.5 * (
+                change_to_cell + change_to_cell.transpose(-1, -2)
+            )
+            graph.cell = actual_cell + symmetric_change
+        else:
+            change_to_cell = torch.zeros_like(graph.cell)
+
+        # use the autograd machinery to auto-magically
+        # calculate forces and stress from the energy
+        with require_grad(graph._positions), require_grad(change_to_cell):
+            energy = self(graph)
+
+            if Property.ENERGY in properties:
+                predictions[Property.ENERGY] = energy
+
+            if Property.FORCES in properties:
+                dE_dR = differentiate(energy, graph._positions)
+                predictions[Property.FORCES] = -dE_dR
+
+            if Property.STRESS in properties:
+                stress = differentiate(energy, change_to_cell)
+                predictions[Property.STRESS] = stress
+
+        if not training:
+            for key, value in predictions.items():
+                predictions[key] = value.detach()
+        return predictions
+
 
 # TODO make this nicer
 class EnergySummation(nn.Module):
@@ -213,87 +296,3 @@ class Ensemble(GraphPESModel):
             info.append(f"weights={self.weights.tolist()}")
         info = "\n  ".join(info)
         return f"Ensemble(\n  {info}\n)"
-
-
-# TODO: add training flag to this so that we don't create the graph needlessly
-# when in eval mode
-# TODO: perhaps this should be a method of GraphPESModel?
-# TODO: overload to get single property if passed
-def get_predictions(
-    pes: GraphPESModel,
-    structure: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
-    properties: Sequence[PropertyKey] | None = None,
-) -> dict[PropertyKey, torch.Tensor]:
-    """
-    Evaluate the `pes` on `structure` to get the labels requested.
-
-    Parameters
-    ----------
-    pes
-        The PES to use.
-    structure
-        The atomic structure to evaluate.
-    property_labels
-        The names of the properties to return. If None, all available
-        properties are returned.
-
-    Returns
-    -------
-    dict[str, torch.Tensor]
-        The requested properties.
-
-    Examples
-    --------
-    >>> # TODO
-
-    """
-
-    if isinstance(structure, list):
-        structure = AtomicGraphBatch.from_graphs(structure)
-
-    if properties is None:
-        properties = [Property.ENERGY, Property.FORCES]
-        if structure.has_cell:
-            properties.append(Property.STRESS)
-    # elif isinstance(properties, str):
-    #     properties = [properties]
-
-    if Property.STRESS in properties and not structure.has_cell:
-        raise ValueError("Can't predict stress without cell information.")
-
-    predictions = {}
-
-    # setup for calculating stress:
-    if Property.STRESS in properties:
-        # The virial stress tensor is the gradient of the total energy wrt
-        # an infinitesimal change in the cell parameters.
-        # We therefore add this change to the cell, such that
-        # we can calculate the gradient wrt later if required.
-        #
-        # See <> TODO: find reference
-        actual_cell = structure.cell
-        change_to_cell = torch.zeros_like(actual_cell, requires_grad=True)
-        symmetric_change = 0.5 * (
-            change_to_cell + change_to_cell.transpose(-1, -2)
-        )
-        structure.cell = actual_cell + symmetric_change
-    else:
-        change_to_cell = torch.zeros_like(structure.cell)
-
-    # use the autograd machinery to auto-magically calculate forces and stress
-    # from the energy
-    with require_grad(structure._positions), require_grad(change_to_cell):
-        energy = pes(structure)
-
-        if Property.ENERGY in properties:
-            predictions[Property.ENERGY] = energy
-
-        if Property.FORCES in properties:
-            dE_dR = differentiate(energy, structure._positions)
-            predictions[Property.FORCES] = -dE_dR
-
-        if Property.STRESS in properties:
-            stress = differentiate(energy, change_to_cell)
-            predictions[Property.STRESS] = stress
-
-    return predictions

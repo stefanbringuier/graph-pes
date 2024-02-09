@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ase import Atoms
 from ase.calculators.calculator import Calculator, all_changes
-from graph_pes.core import GraphPESModel, get_predictions
+from graph_pes.core import GraphPESModel
 from graph_pes.data import convert_to_atomic_graph
 
 
@@ -49,7 +49,7 @@ class GraphPESCalculator(Calculator):
         Calculator.calculate(self, atoms)
 
         graph = convert_to_atomic_graph(atoms, self.cutoff).to(self.device)
-        predictions = get_predictions(self.model, graph)
+        predictions = self.model.predict(graph)
         results = {
             "energy": predictions["energy"].detach().cpu().item(),
             "forces": predictions["forces"].detach().cpu().numpy(),

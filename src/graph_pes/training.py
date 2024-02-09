@@ -9,7 +9,7 @@ import torch
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 
-from .core import GraphPESModel, get_predictions
+from .core import GraphPESModel
 from .data import AtomicGraph
 from .data.batching import AtomicDataLoader, AtomicGraphBatch
 from .loss import RMSE, Loss, WeightedLoss
@@ -147,7 +147,7 @@ class LearnThePES(pl.LightningModule):
             )
 
         # generate prediction:
-        predictions = get_predictions(self.model, graph, self.properties)
+        predictions = self.model.predict(graph, self.properties, training=True)
 
         # compute the losses
         total_loss = torch.scalar_tensor(0.0, device=self.device)
