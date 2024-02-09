@@ -60,6 +60,10 @@ class PairPotential(GraphPESModel, ABC):
     def predict_local_energies(
         self, graph: AtomicGraph
     ) -> Float[Tensor, "graph.n_edges"]:
+        """
+        Predict the local energies as half the sum of the pair-wise
+        interactions that each atom participates in.
+        """
         central_atoms, neighbours = graph.neighbour_index
         distances = graph.neighbour_distances
 
@@ -107,26 +111,22 @@ class LennardJones(PairPotential):
         # parameter (rather than a shift and scale)
         self.energy_summation = EnergySummation(local_transform=PerAtomShift())
 
-    def interaction(
-        self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor
-    ):
+    # don't use Z_i and Z_j, but include them for consistency with the
+    # abstract method
+    def interaction(self, r: torch.Tensor, Z_i=None, Z_j=None):
         """
         Evaluate the pair potential.
 
         Parameters
         ----------
-        r : torch.Tensor
+        r
             The pair-wise distances between the atoms.
-        Z_i : torch.Tensor
-            The atomic numbers of the central atoms. (unused)
-        Z_j : torch.Tensor
-            The atomic numbers of the neighbours. (unused)
         """
         x = self.sigma / r
         return 4 * self.epsilon * (x**12 - x**6)
 
-    def pre_fit(self, graph: AtomicGraphBatch, energy_label: str = "energy"):
-        super().pre_fit(graph, energy_label)
+    def pre_fit(self, graph: AtomicGraphBatch):
+        super().pre_fit(graph)
 
         # set the distance at which the potential is zero to be
         # close to the minimum pair-wise distance

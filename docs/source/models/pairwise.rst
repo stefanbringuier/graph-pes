@@ -2,7 +2,7 @@ Pair Potentials
 ===============
 
 .. autoclass :: graph_pes.models.pairwise.PairPotential
-   :members: interaction
+   :members: interaction, predict_local_energies
    :show-inheritance:
 
 .. autoclass :: graph_pes.models.pairwise.LennardJones
