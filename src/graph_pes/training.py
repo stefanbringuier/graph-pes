@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypeVar
 
 import pytorch_lightning as pl
 import torch
@@ -16,9 +16,11 @@ from .loss import RMSE, Loss, WeightedLoss
 from .transform import PerAtomScale, PerAtomStandardScaler, Scale
 from .util import ALL_PROPERTIES, Property, PropertyKey
 
+T = TypeVar("T", bound=GraphPESModel)
+
 
 def train_model(
-    model: GraphPESModel,
+    model: T,
     train_data: list[AtomicGraph],
     val_data: list[AtomicGraph] | None = None,
     optimizer: Callable[[], torch.optim.Optimizer | OptimizerLRSchedulerConfig]
@@ -29,7 +31,7 @@ def train_model(
     pre_fit_model: bool = True,
     # pytorch lightning
     **trainer_kwargs,
-):
+) -> T:
     # sanity check, but also ensures things like per-atom parameters
     # are registered
     try:
