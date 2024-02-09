@@ -24,6 +24,7 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinxext.opengraph",
     "sphinx_copybutton",
+    "sphinx.ext.viewcode",
 ]
 
 
@@ -49,8 +50,8 @@ nbsphinx_execute_arguments = [
 ]
 copybutton_selector = "div.copy-button pre"
 
-logo_highlight_colour = "#3c78d8"
-code_color = "#00b398"
+logo_highlight_colour = "rgb(50, 170, 191)"
+code_color = "rgb(50, 170, 191)"
 html_theme_options = {
     "sidebar_hide_name": True,
     "light_css_variables": {
@@ -60,5 +61,7 @@ html_theme_options = {
     },
     "dark_css_variables": {
         "color-problematic": code_color,
+        "color-brand-primary": logo_highlight_colour,
+        "color-brand-content": logo_highlight_colour,
     },
 }
