@@ -80,7 +80,7 @@ class Interaction(nn.Module):
         Δs.scatter_add_(0, neighbours.view(-1, 1).expand_as(a), a)
 
         # create vector messages
-        v_ij = (b * unit_vectors).unsqueeze(-1)  # (E, D, 3)
+        v_ij = b.unsqueeze(-1) * unit_vectors.unsqueeze(1)  # (E, D, 3)
         v_ij = v_ij + c.unsqueeze(-1) * vector_embeddings[neighbours]
 
         Δv = torch.zeros_like(vector_embeddings)  # (N, D, 3)
