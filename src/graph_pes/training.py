@@ -77,7 +77,7 @@ def train_model(
     # deal with fitting transforms
     # TODO: what if not training on energy?
     if pre_fit_model and Property.ENERGY in training_on:
-        model.pre_fit(train_batch, Property.ENERGY)
+        model.pre_fit(train_batch)
     total_loss.fit_transform(train_batch)
 
     # deal with the optimizer

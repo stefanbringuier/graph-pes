@@ -9,7 +9,7 @@ All models implemented in ``graph_pes`` are subclasses of
 
 
 .. autoclass:: graph_pes.core.GraphPESModel
-   :members: predict_local_energies, __add__
+   :members: 
 
 
 Available Models

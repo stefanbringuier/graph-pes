@@ -66,7 +66,7 @@ class GraphPESModel(nn.Module, ABC):
 
         Parameters
         ----------
-        graph : AtomicGraph
+        graph
             The graph representation of the structure/s.
         """
 
@@ -91,7 +91,7 @@ class GraphPESModel(nn.Module, ABC):
         """
         return Ensemble([self, other], aggregation="sum")
 
-    def pre_fit(self, graphs: AtomicGraphBatch, energy_label: str = "energy"):
+    def pre_fit(self, graphs: AtomicGraphBatch):
         """
         Perform optional pre-processing of the training data.
 
@@ -106,7 +106,7 @@ class GraphPESModel(nn.Module, ABC):
         graphs
             The training data.
         """
-        self.energy_summation.fit_to_graphs(graphs, energy_label)
+        self.energy_summation.fit_to_graphs(graphs)
 
     # TODO: overload to get single property if passed
     # TODO: implement max batch size
@@ -121,11 +121,15 @@ class GraphPESModel(nn.Module, ABC):
 
         Parameters
         ----------
-        structure
+        graph
             The atomic structure to evaluate.
-        property_labels
-            The names of the properties to return. If None, all available
-            properties are returned.
+        properties
+            The properties to predict. If not provided, defaults to
+            :code:`[Property.ENERGY, Property.FORCES]` if the structure
+            has no cell, and :code:`[Property.ENERGY, Property.FORCES,
+            Property.STRESS]` if it does.
+        training
+            Whether the model is currently being trained.
 
         Returns
         -------
@@ -192,7 +196,6 @@ class GraphPESModel(nn.Module, ABC):
         return predictions
 
 
-# TODO make this nicer
 class EnergySummation(nn.Module):
     def __init__(
         self,
@@ -215,16 +218,25 @@ class EnergySummation(nn.Module):
         total_E = self.total_transform.inverse(total_E, graph)
         return total_E
 
-    def fit_to_graphs(
-        self,
-        graphs: AtomicGraphBatch | list[AtomicGraph],
-        energy_label: str = "energy",
-    ):
+    def fit_to_graphs(self, graphs: AtomicGraphBatch | list[AtomicGraph]):
         if not isinstance(graphs, AtomicGraphBatch):
             graphs = AtomicGraphBatch.from_graphs(graphs)
 
         for transform in [self.local_transform, self.total_transform]:
-            transform.fit(graphs[energy_label], graphs)
+            transform.fit(graphs[Property.ENERGY], graphs)
+
+    def __repr__(self):
+        # only show non-default transforms
+        info = [
+            f"{t}_transform={transform}"
+            for t, transform in [
+                ("local", self.local_transform),
+                ("total", self.total_transform),
+            ]
+            if not isinstance(transform, Identity)
+        ]
+        info = "\n  ".join(info)
+        return f"EnergySummation(\n  {info}\n)"
 
 
 class Ensemble(GraphPESModel):
