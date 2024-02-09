@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import Literal, Sequence
 
 import torch
 from graph_pes.data import AtomicGraph
@@ -13,7 +13,7 @@ from graph_pes.transform import (
     PerAtomShift,
     Transform,
 )
-from graph_pes.util import Property, differentiate, require_grad
+from graph_pes.util import Property, PropertyKey, differentiate, require_grad
 from jaxtyping import Float
 from torch import Tensor, nn
 
@@ -89,7 +89,6 @@ class GraphPESModel(nn.Module, ABC):
         >>> TwoBody() + ThreeBody()
         Ensemble([TwoBody(), ThreeBody()], aggregation=sum)
         """
-
         return Ensemble([self, other], aggregation="sum")
 
     def pre_fit(self, graphs: AtomicGraphBatch, energy_label: str = "energy"):
@@ -110,6 +109,7 @@ class GraphPESModel(nn.Module, ABC):
         self.energy_summation.fit_to_graphs(graphs, energy_label)
 
 
+# TODO make this nicer
 class EnergySummation(nn.Module):
     def __init__(
         self,
@@ -218,11 +218,12 @@ class Ensemble(GraphPESModel):
 # TODO: add training flag to this so that we don't create the graph needlessly
 # when in eval mode
 # TODO: perhaps this should be a method of GraphPESModel?
+# TODO: overload to get single property if passed
 def get_predictions(
     pes: GraphPESModel,
     structure: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],
-    property_labels: dict[Property, str] | None = None,
-) -> dict[str, torch.Tensor]:
+    properties: Sequence[PropertyKey] | None = None,
+) -> dict[PropertyKey, torch.Tensor]:
     """
     Evaluate the `pes` on `structure` to get the labels requested.
 
@@ -250,22 +251,20 @@ def get_predictions(
     if isinstance(structure, list):
         structure = AtomicGraphBatch.from_graphs(structure)
 
-    if property_labels is None:
-        property_labels = {
-            Property.ENERGY: "energy",
-            Property.FORCES: "forces",
-        }
+    if properties is None:
+        properties = [Property.ENERGY, Property.FORCES]
         if structure.has_cell:
-            property_labels[Property.STRESS] = "stress"
+            properties.append(Property.STRESS)
+    # elif isinstance(properties, str):
+    #     properties = [properties]
 
-    else:
-        if Property.STRESS in property_labels and not structure.has_cell:
-            raise ValueError("Can't predict stress without cell information.")
+    if Property.STRESS in properties and not structure.has_cell:
+        raise ValueError("Can't predict stress without cell information.")
 
     predictions = {}
 
     # setup for calculating stress:
-    if Property.STRESS in property_labels:
+    if Property.STRESS in properties:
         # The virial stress tensor is the gradient of the total energy wrt
         # an infinitesimal change in the cell parameters.
         # We therefore add this change to the cell, such that
@@ -286,15 +285,15 @@ def get_predictions(
     with require_grad(structure._positions), require_grad(change_to_cell):
         energy = pes(structure)
 
-        if Property.ENERGY in property_labels:
-            predictions[property_labels[Property.ENERGY]] = energy
+        if Property.ENERGY in properties:
+            predictions[Property.ENERGY] = energy
 
-        if Property.FORCES in property_labels:
+        if Property.FORCES in properties:
             dE_dR = differentiate(energy, structure._positions)
-            predictions[property_labels[Property.FORCES]] = -dE_dR
+            predictions[Property.FORCES] = -dE_dR
 
-        if Property.STRESS in property_labels:
+        if Property.STRESS in properties:
             stress = differentiate(energy, change_to_cell)
-            predictions[property_labels[Property.STRESS]] = stress
+            predictions[Property.STRESS] = stress
 
     return predictions

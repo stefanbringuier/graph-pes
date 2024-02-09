@@ -14,7 +14,7 @@ from .core import GraphPESModel, get_predictions
 from .data.atomic_graph import AtomicGraph, convert_to_atomic_graphs
 from .data.batching import AtomicGraphBatch
 from .transform import Identity, Transform
-from .util import Property
+from .util import Property, PropertyKey
 
 _my_style = {
     "figure.figsize": (3.5, 3),
@@ -75,7 +75,7 @@ def move_axes(ax: plt.Axes | None = None):  # type: ignore
 def parity_plot(
     model: GraphPESModel,
     graphs: AtomicGraphBatch | list[AtomicGraph],
-    property: Property,
+    property: PropertyKey = Property.ENERGY,
     property_label: str | None = None,
     transform: Transform | None = None,
     units: str | None = None,
@@ -151,7 +151,7 @@ def parity_plot(
     # deal with defaults
     transform = transform or Identity()
     if property_label is None:
-        property_label = property.value
+        property_label = property
 
     # get the predictions and labels
     if isinstance(graphs, list):
@@ -159,9 +159,8 @@ def parity_plot(
 
     ground_truth = transform(graphs[property_label], graphs).detach()
     predictions = transform(
-        get_predictions(model, graphs, {property: property_label})[
-            property_label
-        ],
+        # TOOD: use overload
+        get_predictions(model, graphs, [property])[property],
         graphs,
     ).detach()
 

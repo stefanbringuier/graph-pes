@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Callable
 
 import torch
-from graph_pes.data import AtomicGraphBatch
-from graph_pes.transform import Identity, Transform
 from torch import Tensor, nn
+
+from .data import AtomicGraphBatch
+from .transform import Identity, Transform
+from .util import PropertyKey
 
 
 class Loss(nn.Module):
@@ -41,8 +43,8 @@ class Loss(nn.Module):
 
     Parameters
     ----------
-    property_key
-        The name of the property to apply transformations and loss metrics to.
+    property
+        The property to apply transformations and loss metrics to.
     metric
         The loss metric to use.
     transform
@@ -51,19 +53,19 @@ class Loss(nn.Module):
 
     def __init__(
         self,
-        property_key: str,
+        property: PropertyKey,
         metric: Callable[[Tensor, Tensor], Tensor] | None = None,
         transform: Transform | None = None,
     ):
         super().__init__()
-        self.property_key = property_key
+        self.property_key: PropertyKey = property
         self.metric = MAE() if metric is None else metric
         self.transform = transform or Identity()
         self.transform.trainable = False
 
     def forward(
         self,
-        predictions: dict[str, torch.Tensor],
+        predictions: dict[PropertyKey, torch.Tensor],
         graphs: AtomicGraphBatch,
     ) -> torch.Tensor:
         """
@@ -84,7 +86,7 @@ class Loss(nn.Module):
 
     def raw(
         self,
-        predictions: dict[str, torch.Tensor],
+        predictions: dict[PropertyKey, torch.Tensor],
         graphs: AtomicGraphBatch,
     ) -> torch.Tensor:
         """
@@ -201,7 +203,7 @@ class WeightedLoss(torch.nn.Module):
 
     def forward(
         self,
-        predictions: dict[str, torch.Tensor],
+        predictions: dict[PropertyKey, torch.Tensor],
         graphs: AtomicGraphBatch,
     ) -> torch.Tensor:
         return sum(

@@ -10,7 +10,7 @@ from ase.neighborlist import neighbor_list
 from jaxtyping import Float, Int, Shaped
 from torch import Tensor
 
-from ..util import as_possible_tensor, shape_repr
+from ..util import PropertyKey, as_possible_tensor, shape_repr
 
 
 class AtomicGraph:
@@ -245,6 +245,7 @@ def convert_to_atomic_graph(
     cutoff: float,
     atom_labels: list[str] | None = None,
     structure_labels: list[str] | None = None,
+    property_mapping: dict[str, PropertyKey] | None = None,
 ) -> AtomicGraph:
     """
     Convert an ASE Atoms object to an AtomicGraph.
@@ -255,16 +256,31 @@ def convert_to_atomic_graph(
         The ASE Atoms object.
     cutoff
         The cutoff distance for neighbour finding.
-    labels
-        The names of any additional labels to include in the graph.
-        These must be present in either the `atoms.info`
-        or `atoms.arrays` dict. If not provided, all possible labels
-        will be included.
+    atom_labels
+        The names of any additional per-atom labels to include in the graph.
+        If not provided, all possible labels will be included.
+    structure_labels
+        The names of any additional per-structure labels to include in the
+        graph. If not provided, all possible labels will be included.
+    property_mapping
+        A mapping from custom property labels to the standard property
+        names (e.g. "totalenergy" -> "energy")
     """
 
     atom_info, structure_info = extract_information(
         structure, atom_labels, structure_labels
     )
+
+    property_mapping = property_mapping or {}
+    for key, value in atom_info.items():
+        if key in property_mapping:
+            atom_info[property_mapping[key]] = value
+            del atom_info[key]
+    for key, value in structure_info.items():
+        if key in property_mapping:
+            structure_info[property_mapping[key]] = value
+            del structure_info[key]
+
     i, j, offsets = neighbor_list("ijS", structure, cutoff)
     return AtomicGraph(
         Z=torch.LongTensor(structure.numbers),
@@ -364,6 +380,7 @@ def convert_to_atomic_graphs(
     cutoff: float,
     atom_labels: list[str] | None = None,
     structure_labels: list[str] | None = None,
+    property_mapping: dict[str, PropertyKey] | None = None,
 ) -> list[AtomicGraph]:
     """
     Convert a collection of ASE Atoms into a list of AtomicGraphs.
@@ -374,11 +391,15 @@ def convert_to_atomic_graphs(
         The ASE Atoms objects.
     cutoff
         The cutoff distance for neighbour finding.
-    labels
-        The names of any additional labels to include in the graph.
-        These must be present in either the `atoms.info`
-        or `atoms.arrays` dict. If not provided, all possible labels
-        will be included.
+    atom_labels
+        The names of any additional per-atom labels to include in the graph.
+        If not provided, all possible labels will be included.
+    structure_labels
+        The names of any additional per-structure labels to include in the
+        graph. If not provided, all possible labels will be included.
+    property_mapping
+        A mapping from custom property labels to the standard property
+        names (e.g. "totalenergy" -> "energy")
     """
     if atom_labels is None and structure_labels:
         atom_labels = []
@@ -387,6 +408,8 @@ def convert_to_atomic_graphs(
     if isinstance(structures, ase.Atoms):
         structures = [structures]
     return [
-        convert_to_atomic_graph(s, cutoff, atom_labels, structure_labels)
+        convert_to_atomic_graph(
+            s, cutoff, atom_labels, structure_labels, property_mapping
+        )
         for s in structures
     ]

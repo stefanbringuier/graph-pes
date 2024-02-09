@@ -14,7 +14,7 @@ from .data import AtomicGraph
 from .data.batching import AtomicDataLoader, AtomicGraphBatch
 from .loss import RMSE, Loss, WeightedLoss
 from .transform import PerAtomScale, PerAtomStandardScaler, Scale
-from .util import Property
+from .util import ALL_PROPERTIES, Property, PropertyKey
 
 
 def train_model(
@@ -24,7 +24,6 @@ def train_model(
     optimizer: Callable[[], torch.optim.Optimizer | OptimizerLRSchedulerConfig]
     | None = None,
     loss: WeightedLoss | Loss | None = None,
-    property_labels: dict[Property, str] | None = None,
     *,
     batch_size: int = 32,
     pre_fit_model: bool = True,
@@ -34,45 +33,37 @@ def train_model(
     # sanity check, but also ensures things like per-atom parameters
     # are registered
     try:
-        for graph in train_data[:10]:
+        for graph in train_data:
             model(graph)
     except Exception as e:
         raise ValueError("The model does not appear to work") from e
 
     # TODO check using a strict flag that all the data have the same keys
-    batch = AtomicGraphBatch.from_graphs(train_data)
+    train_batch = AtomicGraphBatch.from_graphs(train_data)
 
-    # check that the property keys are valid
-    if property_labels is None:
-        property_labels = get_existing_keys(batch)
-        if not property_labels:
-            expected = [key.value for key in Property.__members__.values()]
+    # process and validate the loss
+    total_loss = process_loss(loss, train_data[0])
+    training_on = [component.property_key for component in total_loss.losses]
+    for prop in training_on:
+        if prop not in get_existing_properties(train_data[0]):
             raise ValueError(
-                "No property_keys were provided, and none were found in "
-                f"the data. Expected at least one of: {expected}"
+                f"Can't train on {prop} without the corresponding data"
             )
-    else:
-        missing = {
-            label for label in property_labels.values() if label not in batch
-        }
-        if missing:
-            raise ValueError(
-                f"Input data is missing the following keys that were "
-                f"requested: {missing}"
-            )
+    if not training_on:
+        raise ValueError("No properties to train on")
 
     expected_shapes = {
-        Property.ENERGY: (batch.n_structures,),
-        Property.FORCES: (batch.n_atoms, 3),
-        Property.STRESS: (batch.n_structures, 3, 3),
+        Property.ENERGY: (train_batch.n_structures,),
+        Property.FORCES: (train_batch.n_atoms, 3),
+        Property.STRESS: (train_batch.n_structures, 3, 3),
     }
-    for key, label in property_labels.items():
-        if batch[label].shape != expected_shapes[key]:
+    for prop in training_on:
+        if train_batch[prop].shape != expected_shapes[prop]:
             raise ValueError(
-                f"Expected {label} to have shape {expected_shapes[key]}, "
-                f"but found {batch[label].shape}"
+                f"Expected {prop} to have shape {expected_shapes[prop]}, "
+                f"but found {train_batch[prop].shape}"
             )
-    if Property.STRESS in property_labels and not batch.has_cell:
+    if Property.STRESS in training_on and not train_batch.has_cell:
         raise ValueError("Can't train on stress without cell information.")
 
     # create the data loaders
@@ -85,11 +76,9 @@ def train_model(
 
     # deal with fitting transforms
     # TODO: what if not training on energy?
-    if pre_fit_model and Property.ENERGY in property_labels:
-        model.pre_fit(batch, property_labels[Property.ENERGY])
-
-    actual_loss = get_loss(loss, property_labels)
-    actual_loss.fit_transform(batch)
+    if pre_fit_model and Property.ENERGY in training_on:
+        model.pre_fit(train_batch, Property.ENERGY)
+    total_loss.fit_transform(train_batch)
 
     # deal with the optimizer
     if optimizer is None:
@@ -98,7 +87,7 @@ def train_model(
         opt = optimizer()
 
     # create the task (a pytorch lightning module)
-    task = LearnThePES(model, opt, actual_loss, property_labels)
+    task = LearnThePES(model, opt, total_loss)
 
     # create the trainer
     kwargs = default_trainer_kwargs()
@@ -108,7 +97,7 @@ def train_model(
     # log info
     params = sum(p.numel() for p in model.parameters())
     device = trainer.accelerator.__class__.__name__.replace("Accelerator", "")
-    print(f"Training on : {list(property_labels.values())}")
+    print(f"Training on : {training_on}")
     print(f"# of params : {params}")
     print(f"Device      : {device}")
     print()
@@ -120,12 +109,8 @@ def train_model(
     return task.load_best_weights(model, trainer)
 
 
-def get_existing_keys(batch: AtomicGraphBatch) -> dict[Property, str]:
-    return {
-        key: key.value
-        for key in Property.__members__.values()
-        if key.value in batch
-    }
+def get_existing_properties(graph: AtomicGraph) -> list[PropertyKey]:
+    return [p for p in ALL_PROPERTIES if p in graph]
 
 
 class LearnThePES(pl.LightningModule):
@@ -133,14 +118,15 @@ class LearnThePES(pl.LightningModule):
         self,
         model: GraphPESModel,
         optimizer: torch.optim.Optimizer | OptimizerLRSchedulerConfig,
-        loss: WeightedLoss,
-        property_labels: dict[Property, str],
+        total_loss: WeightedLoss,
     ):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
-        self.loss = loss
-        self.property_labels = property_labels
+        self.total_loss = total_loss
+        self.properties: list[PropertyKey] = [
+            component.property_key for component in total_loss.losses
+        ]
 
     def forward(self, graphs: AtomicGraphBatch):
         return self.model(graphs)
@@ -161,12 +147,14 @@ class LearnThePES(pl.LightningModule):
             )
 
         # generate prediction:
-        predictions = get_predictions(self.model, graph, self.property_labels)
+        predictions = get_predictions(self.model, graph, self.properties)
 
         # compute the losses
         total_loss = torch.scalar_tensor(0.0, device=self.device)
 
-        for loss, weight in zip(self.loss.losses, self.loss.weights):
+        for loss, weight in zip(
+            self.total_loss.losses, self.total_loss.weights
+        ):
             value = loss(predictions, graph)
             # log the unweighted components of the loss
             log(f"{loss.property_key}_{loss.name}", value)
@@ -221,35 +209,38 @@ class LearnThePES(pl.LightningModule):
         return model
 
 
-def get_loss(
-    loss: WeightedLoss | Loss | None, property_labels: dict[Property, str]
+def process_loss(
+    loss: WeightedLoss | Loss | None, graph: AtomicGraph
 ) -> WeightedLoss:
-    if loss is None:
-        default_transforms = {
-            Property.ENERGY: PerAtomStandardScaler(),  # TODO is this right?
-            Property.FORCES: PerAtomScale(),
-            Property.STRESS: Scale(),
-        }
-        default_weights = {
-            Property.ENERGY: 1.0,
-            Property.FORCES: 1.0,
-            Property.STRESS: 1.0,
-        }
-        return WeightedLoss(
-            [
-                Loss(
-                    label,
-                    metric=RMSE(),
-                    transform=default_transforms[key],
-                )
-                for key, label in property_labels.items()
-            ],
-            [default_weights[key] for key in property_labels],
-        )
+    if isinstance(loss, WeightedLoss):
+        return loss
     elif isinstance(loss, Loss):
         return WeightedLoss([loss], [1.0])
-    else:
-        return loss
+
+    default_transforms = {
+        Property.ENERGY: PerAtomStandardScaler(),  # TODO is this right?
+        Property.FORCES: PerAtomScale(),
+        Property.STRESS: Scale(),
+    }
+    default_weights = {
+        Property.ENERGY: 1.0,
+        Property.FORCES: 1.0,
+        Property.STRESS: 1.0,
+    }
+
+    available_properties = get_existing_properties(graph)
+
+    return WeightedLoss(
+        [
+            Loss(
+                key,
+                metric=RMSE(),
+                transform=default_transforms[key],
+            )
+            for key in available_properties
+        ],
+        [default_weights[key] for key in available_properties],
+    )
 
 
 def default_trainer_kwargs() -> dict:

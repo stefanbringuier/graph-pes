@@ -6,8 +6,9 @@ from typing import Callable
 import torch
 import torch.nn as nn
 from ase.data import chemical_symbols
-from graph_pes.util import MAX_Z, pairs
 from torch import Tensor
+
+from .util import MAX_Z, pairs
 
 # TODO support access to .data via property and setter on ConstrainedParameter
 # / cleanup the ConstrainedParameter class

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from enum import Enum
-from typing import Iterator, Sequence, TypeVar, overload
+from typing import Iterator, Literal, Sequence, TypeVar, overload
 
 import torch
 from ase.data import chemical_symbols
@@ -120,10 +119,18 @@ def as_possible_tensor(value: object) -> Tensor | None:
         return None
 
 
-class Property(Enum):
+class Property:
     ENERGY = "energy"
     FORCES = "forces"
     STRESS = "stress"
+
+
+PropertyKey = Literal["energy", "forces", "stress"]
+ALL_PROPERTIES: list[PropertyKey] = [
+    Property.ENERGY,
+    Property.FORCES,
+    Property.STRESS,
+]
 
 
 def differentiate(y: torch.Tensor, x: torch.Tensor):

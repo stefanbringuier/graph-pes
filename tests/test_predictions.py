@@ -31,26 +31,18 @@ def test_predictions():
     assert set(predictions.keys()) == {"energy", "forces"}
 
     for key in Property.ENERGY, Property.FORCES:
-        assert predictions[key.value].shape == expected_shapes[key]
+        assert predictions[key].shape == expected_shapes[key]
 
     # if we ask for stress, we get an error:
     with pytest.raises(ValueError):
-        get_predictions(model, no_pbc, {Property.STRESS: "stress"})
+        get_predictions(model, no_pbc, ["stress"])
 
     # with pbc structures, we should get all three predictions
     predictions = get_predictions(model, pbc)
     assert set(predictions.keys()) == {"energy", "forces", "stress"}
 
     for key in Property.ENERGY, Property.FORCES, Property.STRESS:
-        assert predictions[key.value].shape == expected_shapes[key]
-
-    # check that requesting a subset of predictions works, and that
-    # the names are correctly mapped:
-    predictions = get_predictions(
-        model, no_pbc, {Property.ENERGY: "total_energy"}
-    )
-    assert set(predictions.keys()) == {"total_energy"}
-    assert predictions["total_energy"].shape == expected_shapes[Property.ENERGY]
+        assert predictions[key].shape == expected_shapes[key]
 
 
 def test_batched_prediction():
@@ -65,7 +57,7 @@ def test_batched_prediction():
     predictions = get_predictions(LennardJones(), batch)
 
     for key in Property.ENERGY, Property.FORCES, Property.STRESS:
-        assert predictions[key.value].shape == expected_shapes[key]
+        assert predictions[key].shape == expected_shapes[key]
 
 
 def test_isolated_atom():
