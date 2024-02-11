@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Sequence
+from typing import Sequence, overload
 
 import torch
 from jaxtyping import Float, Int, Shaped
@@ -12,9 +12,21 @@ from torch_geometric.utils import scatter
 from .atomic_graph import AtomicGraph
 
 
+@overload
 def sum_per_structure(
-    x: torch.Tensor, graph: AtomicGraph | AtomicGraphBatch
-) -> torch.Tensor:
+    x: Float[Tensor, "graph.n_atoms"], graph: AtomicGraphBatch
+) -> Float[Tensor, "graph.n_structures"]:
+    ...
+
+
+@overload
+def sum_per_structure(
+    x: Float[Tensor, "graph.n_atoms"], graph: AtomicGraph
+) -> Float[Tensor, "1"]:
+    ...
+
+
+def sum_per_structure(x: torch.Tensor, graph: AtomicGraph | AtomicGraphBatch):
     """
     Sum a per-atom property into a per-structure property, respecting
     any batch structure of the input graph.
@@ -78,6 +90,8 @@ class AtomicDataLoader(TorchDataLoader):
         )
 
 
+# TODO: allow for pinning?
+# TODO: simplify?
 class AtomicGraphBatch(AtomicGraph):
     """
     A disconnected graph representing multiple atomic structures.

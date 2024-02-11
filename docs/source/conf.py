@@ -50,8 +50,8 @@ nbsphinx_execute_arguments = [
 ]
 copybutton_selector = "div.copy-button pre"
 
-logo_highlight_colour = "rgb(50, 170, 191)"
-code_color = "rgb(50, 170, 191)"
+logo_highlight_colour = "#f74565"
+code_color = "#f74565"
 html_theme_options = {
     "sidebar_hide_name": True,
     "light_css_variables": {

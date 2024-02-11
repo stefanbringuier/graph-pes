@@ -47,6 +47,16 @@ class GraphPESModel(nn.Module, ABC):
             The graph representation of the structure/s.
         """
 
+    @overload
+    def forward(
+        self, graph: AtomicGraphBatch
+    ) -> Float[Tensor, "graph.n_structures"]:
+        ...
+
+    @overload
+    def forward(self, graph: AtomicGraph) -> Float[Tensor, "1"]:
+        ...
+
     def forward(self, graph: AtomicGraph | AtomicGraphBatch):
         """
         Predict the total energy of the structure/s.
@@ -149,11 +159,6 @@ class GraphPESModel(nn.Module, ABC):
         training
             Whether the model is currently being trained. If :code:`False`,
             the gradients of the predictions will be detached.
-
-        Returns
-        -------
-        dict[str, torch.Tensor]
-            The requested properties.
 
         Examples
         --------
@@ -271,7 +276,27 @@ class EnergySummation(nn.Module):
         self.local_transform: Transform = local_transform or Identity()
         self.total_transform: Transform = total_transform or Identity()
 
-    def forward(self, local_energies: torch.Tensor, graph: AtomicGraph):
+    @overload
+    def forward(
+        self,
+        local_energies: Float[Tensor, "graph.n_atoms"],
+        graph: AtomicGraphBatch,
+    ) -> Float[Tensor, "graph.n_structures"]:
+        ...
+
+    @overload
+    def forward(
+        self,
+        local_energies: Float[Tensor, "graph.n_atoms"],
+        graph: AtomicGraph,
+    ) -> Float[Tensor, "1"]:
+        ...
+
+    def forward(
+        self,
+        local_energies: Float[Tensor, "graph.n_atoms"],
+        graph: AtomicGraph,
+    ):
         """
         Sum the local energies to obtain the total energy.
 
@@ -317,7 +342,9 @@ class EnergySummation(nn.Module):
 
     # add type hints to play nicely with mypy
     def __call__(
-        self, local_energies: torch.Tensor, graph: AtomicGraph
+        self,
+        local_energies: Float[Tensor, "graph.n_atoms"],
+        graph: AtomicGraph,
     ) -> Tensor:
         return super().__call__(local_energies, graph)
 
