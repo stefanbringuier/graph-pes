@@ -225,6 +225,20 @@ class GraphPESModel(nn.Module, ABC):
 
         return predictions
 
+    # add type hints to play nicely with mypy
+    @overload
+    def __call__(self, graph: AtomicGraph) -> Float[Tensor, "1"]:
+        ...
+
+    @overload
+    def __call__(
+        self, graph: AtomicGraphBatch
+    ) -> Float[Tensor, "graph.n_structures"]:
+        ...
+
+    def __call__(self, graph: AtomicGraph | AtomicGraphBatch):
+        return super().__call__(graph)
+
 
 class EnergySummation(nn.Module):
     """
@@ -257,7 +271,7 @@ class EnergySummation(nn.Module):
         self.local_transform: Transform = local_transform or Identity()
         self.total_transform: Transform = total_transform or Identity()
 
-    def forward(self, local_energies: torch.Tensor, graph: AtomicGraphBatch):
+    def forward(self, local_energies: torch.Tensor, graph: AtomicGraph):
         """
         Sum the local energies to obtain the total energy.
 
@@ -300,6 +314,12 @@ class EnergySummation(nn.Module):
         ]
         info = "\n  ".join(info)
         return f"EnergySummation(\n  {info}\n)"
+
+    # add type hints to play nicely with mypy
+    def __call__(
+        self, local_energies: torch.Tensor, graph: AtomicGraph
+    ) -> Tensor:
+        return super().__call__(local_energies, graph)
 
 
 class Ensemble(GraphPESModel):
@@ -380,3 +400,7 @@ class Ensemble(GraphPESModel):
             info.append(f"weights={self.weights.tolist()}")
         info = "\n  ".join(info)
         return f"Ensemble(\n  {info}\n)"
+
+    # add type hints to play nicely with mypy
+    def __call__(self, graph: AtomicGraph | AtomicGraphBatch) -> Tensor:
+        return super().__call__(graph)

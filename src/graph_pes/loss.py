@@ -63,6 +63,14 @@ class Loss(nn.Module):
         self.transform = transform or Identity()
         self.transform.trainable = False
 
+    # add type hints to play nicely with mypy
+    def __call__(
+        self,
+        predictions: dict[PropertyKey, torch.Tensor],
+        graphs: AtomicGraphBatch,
+    ) -> torch.Tensor:
+        return super().__call__(predictions, graphs)
+
     def forward(
         self,
         predictions: dict[PropertyKey, torch.Tensor],

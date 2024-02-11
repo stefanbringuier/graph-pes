@@ -33,7 +33,7 @@ def test_predictions():
         assert predictions[key].shape == expected_shapes[key]
 
     # if we ask for stress, we get an error:
-    with pytest.raises(ValueError):
+    with pytest.raises(KeyError):
         model.predict(no_pbc, property="stress")
 
     # with pbc structures, we should get all three predictions
