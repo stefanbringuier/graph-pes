@@ -289,15 +289,27 @@ def convert_to_atomic_graph(
         structure, atom_labels, structure_labels
     )
 
+    # TODO this API is horrible and needs fixing
     property_mapping = property_mapping or {}
+    to_remove = []
+    to_add = {}
     for key, value in atom_info.items():
         if key in property_mapping:
-            atom_info[property_mapping[key]] = value
-            del atom_info[key]
+            to_add[property_mapping[key]] = value
+            to_remove.append(key)
+    for key in to_remove:
+        del atom_info[key]
+    atom_info.update(to_add)
+
+    to_remove = []
+    to_add = {}
     for key, value in structure_info.items():
         if key in property_mapping:
-            structure_info[property_mapping[key]] = value
-            del structure_info[key]
+            to_add[property_mapping[key]] = value
+            to_remove.append(key)
+    for key in to_remove:
+        del structure_info[key]
+    structure_info.update(to_add)
 
     i, j, offsets = neighbor_list("ijS", structure, cutoff)
     return AtomicGraph(
