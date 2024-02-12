@@ -239,6 +239,24 @@ class AtomicGraph:
         )
         return f"AtomicGraph({shape_repr(_dict, sep=', ')}, device={device})"
 
+    def pin_memory(self):
+        self.Z = self.Z.pin_memory()
+        self.neighbour_index = self.neighbour_index.pin_memory()
+        self.cell = self.cell.pin_memory()
+        self.neighbour_offsets = self.neighbour_offsets.pin_memory()
+        self.atom_labels = {
+            k: v.pin_memory() for k, v in self.atom_labels.items()
+        }
+        self.edge_labels = {
+            k: v.pin_memory() for k, v in self.edge_labels.items()
+        }
+        self.structure_labels = {
+            k: v.pin_memory() for k, v in self.structure_labels.items()
+        }
+
+        self._positions = self._positions.pin_memory()
+        return self
+
 
 def convert_to_atomic_graph(
     structure: ase.Atoms,

@@ -90,7 +90,6 @@ class AtomicDataLoader(TorchDataLoader):
         )
 
 
-# TODO: allow for pinning?
 # TODO: simplify?
 class AtomicGraphBatch(AtomicGraph):
     """
@@ -213,6 +212,12 @@ class AtomicGraphBatch(AtomicGraph):
     @classmethod
     def from_graphs(cls, graphs: list[AtomicGraph]) -> AtomicGraphBatch:
         return _collate_atomic_graphs(graphs)
+
+    def pin_memory(self):
+        super().pin_memory()
+        self.batch = self.batch.pin_memory()
+        self.ptr = self.ptr.pin_memory()
+        return self
 
 
 def _collate_atomic_graphs(graphs: list[AtomicGraph]) -> AtomicGraphBatch:
