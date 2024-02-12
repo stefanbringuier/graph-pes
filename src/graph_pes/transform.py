@@ -58,6 +58,14 @@ class Transform(nn.Module, ABC):
             The transformed data.
         """
 
+    # add type hints to play nicely with mypy
+    def __call__(
+        self,
+        x: Shaped[Tensor, "shape ..."],
+        graph: AtomicGraph | AtomicGraphBatch,
+    ) -> Shaped[Tensor, "shape ..."]:
+        return super().__call__(x, graph)
+
     @abstractmethod
     def inverse(
         self,
