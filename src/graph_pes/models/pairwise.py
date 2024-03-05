@@ -114,10 +114,6 @@ class LennardJones(PairPotential):
         self._log_epsilon = torch.nn.Parameter(torch.tensor(epsilon).log())
         self._log_sigma = torch.nn.Parameter(torch.tensor(sigma).log())
 
-        # epsilon is a scaling term, so only need to learn a shift
-        # parameter (rather than a shift and scale)
-        self.energy_transform = PerAtomShift()
-
     # don't use Z_i and Z_j, but include them for consistency with the
     # abstract method
     def interaction(self, r: torch.Tensor, Z_i=None, Z_j=None):
@@ -136,7 +132,17 @@ class LennardJones(PairPotential):
         return 4 * epsilon * (x**12 - x**6)
 
     def pre_fit(self, graph: AtomicGraphBatch):
-        super().pre_fit(graph)
+        assert "energy" in graph
+
+        # epsilon is already a scaling term, so we only need to
+        # learn a shift parameter (rather than a shift and scale):
+        transform = PerAtomShift().fit(graph["energy"], graph)
+
+        # This transform maps total energies to a distribution with
+        # 0 mean. We want to go the other way (i.e. transform our raw
+        # predictions (with ~0 mean) into total energies, and so we use
+        # the inverse of the transform.
+        self.energy_transform = transform.inverse()
 
         # set the distance at which the potential is zero to be
         # close to the minimum pair-wise distance
@@ -185,7 +191,9 @@ class Morse(PairPotential):
         return D * (1 - torch.exp(-a * (r - r0))) ** 2
 
     def pre_fit(self, graph: AtomicGraphBatch):
-        super().pre_fit(graph)
+        assert "energy" in graph
+        transform = PerAtomShift().fit(graph["energy"], graph)
+        self.energy_transform = transform.inverse()
 
         # set the potential depth to be shallow
         self._log_D = torch.nn.Parameter(torch.tensor(0.1).log())

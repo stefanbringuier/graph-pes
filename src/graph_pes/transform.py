@@ -3,12 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import torch
+from torch import Tensor, nn
+
 from graph_pes.data import (
     AtomicGraph,
     AtomicGraphBatch,
-    is_batch,
     is_local_property,
-    number_of_atoms,
     number_of_structures,
     structure_sizes,
     sum_per_structure,
@@ -16,9 +16,9 @@ from graph_pes.data import (
 from graph_pes.nn import (
     PerSpeciesParameter,
     left_aligned_div,
+    left_aligned_mul,
     left_aligned_sub,
 )
-from torch import Tensor, nn
 
 
 class Transform(nn.Module, ABC):
@@ -186,7 +186,7 @@ class PerAtomShift(Transform):
         self,
         x: Tensor,
         graphs: AtomicGraphBatch,
-    ):
+    ) -> PerAtomShift:
         r"""
         Fit the shift to the data, :math:`x`.
 
@@ -226,6 +226,8 @@ class PerAtomShift(Transform):
             shift_vec = torch.linalg.lstsq(N, x).solution
             for idx, z in enumerate(zs):
                 self.shift[z] = shift_vec[idx]
+
+        return self
 
     def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         r"""
@@ -304,7 +306,7 @@ class PerAtomScale(Transform):
         self.act_on_norms = act_on_norms
 
     @torch.no_grad()
-    def fit(self, x: Tensor, graphs: AtomicGraphBatch):
+    def fit(self, x: Tensor, graphs: AtomicGraphBatch) -> PerAtomScale:
         r"""
         Fit the scale to the data, :math:`x`.
 
@@ -341,6 +343,8 @@ class PerAtomScale(Transform):
             # for now, we just get a single scale for all species
             scale = (x / structure_sizes(graphs) ** 0.5).var()
             self.scales[zs] = scale
+
+        return self
 
     def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         r"""
@@ -420,12 +424,7 @@ class DividePerAtom(Transform):
         return self
 
     def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
-        sizes = (
-            structure_sizes(graph)  # type: ignore
-            if is_batch(graph)
-            else number_of_atoms(graph)
-        )
-        return x / sizes
+        return left_aligned_div(x, structure_sizes(graph))
 
     def inverse(self) -> MultiplyPerAtom:
         return MultiplyPerAtom()
@@ -439,12 +438,7 @@ class MultiplyPerAtom(Transform):
         return self
 
     def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
-        sizes = (
-            structure_sizes(graph)  # type: ignore
-            if is_batch(graph)
-            else number_of_atoms(graph)
-        )
-        return x * sizes
+        return left_aligned_mul(x, structure_sizes(graph))
 
     def inverse(self) -> DividePerAtom:
         return DividePerAtom()

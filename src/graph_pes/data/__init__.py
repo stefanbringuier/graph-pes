@@ -312,16 +312,21 @@ def sum_per_structure(x: Tensor, graph: AtomicGraph) -> Tensor:
         return x.sum()
 
 
-def number_of_structures(batch: AtomicGraphBatch) -> int:
+def number_of_structures(batch: AtomicGraph) -> int:
     """Get the number of structures in the `batch`."""
 
-    return batch[keys.PTR].shape[0] - 1
+    if not is_batch(batch):
+        return 1
+    return batch[keys.PTR].shape[0] - 1  # type: ignore
 
 
-def structure_sizes(batch: AtomicGraphBatch) -> Tensor:
+def structure_sizes(batch: AtomicGraph) -> Tensor:
     """Get the number of atoms in each structure in the `batch`."""
 
-    return batch[keys.PTR][1:] - batch[keys.PTR][:-1]
+    if not is_batch(batch):
+        return torch.scalar_tensor(number_of_atoms(batch))
+
+    return batch[keys.PTR][1:] - batch[keys.PTR][:-1]  # type: ignore
 
 
 class AtomicDataLoader(TorchDataLoader):

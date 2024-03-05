@@ -5,6 +5,7 @@ from ase import Atoms
 from ase.io import read
 from graph_pes.core import Ensemble, get_predictions
 from graph_pes.data import (
+    batch_graphs,
     convert_to_atomic_graph,
     convert_to_atomic_graphs,
     is_periodic,
@@ -19,6 +20,10 @@ graphs = convert_to_atomic_graphs(structures, cutoff=3)
 
 def test_model():
     model = LennardJones()
+    model.pre_fit(batch_graphs(graphs[:2]))  # type: ignore
+
+    assert sum(p.numel() for p in model.parameters()) == 3
+
     predictions = get_predictions(model, graphs)
     assert "energy" in predictions
     assert "forces" in predictions
