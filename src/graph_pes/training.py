@@ -35,7 +35,7 @@ def train_model(
     model: T,
     train_data: list[AtomicGraph],
     val_data: list[AtomicGraph] | None = None,
-    optimizer: Callable[[], torch.optim.Optimizer | OptimizerLRSchedulerConfig]
+    optimizer: Callable[[T], torch.optim.Optimizer | OptimizerLRSchedulerConfig]
     | None = None,
     loss: WeightedLoss | Loss | None = None,
     *,
@@ -97,7 +97,7 @@ def train_model(
     if optimizer is None:
         opt = torch.optim.Adam(model.parameters(), lr=3e-4)
     else:
-        opt = optimizer()
+        opt = optimizer(model)
 
     # create the task (a pytorch lightning module)
     task = LearnThePES(model, opt, total_loss)
@@ -237,7 +237,7 @@ def process_loss(
         return WeightedLoss([loss], [1.0])
 
     default_transforms = {
-        keys.ENERGY: PerAtomStandardScaler(),  # TODO is this right?
+        keys.ENERGY: PerAtomStandardScaler(),
         keys.FORCES: PerAtomScale(),
         keys.STRESS: Scale(),
     }
@@ -292,3 +292,23 @@ def device_info_filter(record):
 logging.getLogger("pytorch_lightning.utilities.rank_zero").addFilter(
     device_info_filter
 )
+
+
+def Adam(
+    lr: float = 3e-4, weight_decay: float = 0.0
+) -> Callable[[GraphPESModel], torch.optim.Optimizer]:
+    return lambda model: torch.optim.Adam(
+        model.parameters(),
+        lr=lr,
+        weight_decay=weight_decay,
+    )
+
+
+def SGD(
+    lr: float = 3e-4, weight_decay: float = 0.0
+) -> Callable[[GraphPESModel], torch.optim.Optimizer]:
+    return lambda model: torch.optim.SGD(
+        model.parameters(),
+        lr=lr,
+        weight_decay=weight_decay,
+    )
