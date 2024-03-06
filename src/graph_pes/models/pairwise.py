@@ -12,6 +12,7 @@ from graph_pes.data import (
     sum_over_neighbours,
 )
 from graph_pes.transform import PerAtomShift
+from graph_pes.util import pytorch_repr, to_significant_figures
 from jaxtyping import Float
 from torch import Tensor
 
@@ -112,6 +113,17 @@ class LennardJones(PairPotential):
         self._log_epsilon = torch.nn.Parameter(torch.tensor(epsilon).log())
         self._log_sigma = torch.nn.Parameter(torch.tensor(sigma).log())
 
+        # epsilon is a scaling term, so only need to learn a shift
+        self.energy_transform = PerAtomShift()
+
+    @property
+    def epsilon(self):
+        return self._log_epsilon.exp()
+
+    @property
+    def sigma(self):
+        return self._log_sigma.exp()
+
     # don't use Z_i and Z_j, but include them for consistency with the
     # abstract method
     def interaction(self, r: torch.Tensor, Z_i=None, Z_j=None):
@@ -123,11 +135,9 @@ class LennardJones(PairPotential):
         r
             The pair-wise distances between the atoms.
         """
-        epsilon = self._log_epsilon.exp()
-        sigma = self._log_sigma.exp()
 
-        x = sigma / r
-        return 4 * epsilon * (x**12 - x**6)
+        x = self.sigma / r
+        return 4 * self.epsilon * (x**12 - x**6)
 
     def pre_fit(self, graph: AtomicGraphBatch):
         assert "energy" in graph
@@ -146,6 +156,16 @@ class LennardJones(PairPotential):
         # close to the minimum pair-wise distance
         d = torch.quantile(neighbour_distances(graph), 0.01)
         self._log_sigma = torch.nn.Parameter(d.log())
+
+    def __repr__(self):
+        return pytorch_repr(
+            "LennardJones",
+            _modules={
+                "epsilon": to_significant_figures(self.epsilon.item(), 3),
+                "sigma": to_significant_figures(self.sigma.item(), 3),
+                "energy_transform": self.energy_transform,
+            },
+        )
 
 
 class Morse(PairPotential):
@@ -170,6 +190,18 @@ class Morse(PairPotential):
         # parameter (rather than a shift and scale)
         self.energy_transform = PerAtomShift()
 
+    @property
+    def D(self):
+        return self._log_D.exp()
+
+    @property
+    def a(self):
+        return self._log_a.exp()
+
+    @property
+    def r0(self):
+        return self._log_r0.exp()
+
     def interaction(
         self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor
     ):
@@ -185,8 +217,7 @@ class Morse(PairPotential):
         Z_j : torch.Tensor
             The atomic numbers of the neighbours. (unused)
         """
-        D, a, r0 = self._log_D.exp(), self._log_a.exp(), self._log_r0.exp()
-        return D * (1 - torch.exp(-a * (r - r0))) ** 2
+        return self.D * (1 - torch.exp(-self.a * (r - self.r0))) ** 2
 
     def pre_fit(self, graph: AtomicGraphBatch):
         assert "energy" in graph
@@ -203,3 +234,14 @@ class Morse(PairPotential):
 
         # set the width to be "reasonable"
         self._log_a = torch.nn.Parameter(torch.tensor(3.0).log())
+
+    def __repr__(self):
+        return pytorch_repr(
+            "Morse",
+            _modules={
+                "D": to_significant_figures(self.D.item(), 3),
+                "a": to_significant_figures(self.a.item(), 3),
+                "r0": to_significant_figures(self.r0.item(), 3),
+                "energy_transform": self.energy_transform,
+            },
+        )

@@ -14,7 +14,7 @@ from graph_pes.data import (
     keys,
     sum_per_structure,
 )
-from graph_pes.transform import Identity, PerAtomStandardScaler, Transform
+from graph_pes.transform import PerAtomStandardScaler, Transform
 from graph_pes.util import differentiate, require_grad
 
 
@@ -61,7 +61,7 @@ class GraphPESModel(nn.Module, ABC):
         super().__init__()
         # assigned here to appease torchscript and mypy:
         # this gets overridden in pre_fit below
-        self.energy_transform: Transform = Identity()
+        self.energy_transform: Transform = PerAtomStandardScaler()
 
     def pre_fit(self, graphs: AtomicGraphBatch):
         """

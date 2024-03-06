@@ -95,3 +95,52 @@ def require_grad(tensor: torch.Tensor):
     tensor.requires_grad_(True)
     yield
     tensor.requires_grad_(req_grad)
+
+
+def to_significant_figures(x: float | int, sf: int = 3) -> float:
+    """
+    Get a string representation of a float, rounded to
+    `sf` significant figures.
+    """
+
+    # do the actual rounding
+    possibly_scientific = f"{x:.{sf}g}"
+
+    # this might be in e.g. 1.23e+02 format,
+    # so convert to float and back to string
+    return float(possibly_scientific)
+
+
+def pytorch_repr(
+    name: str,
+    _modules: dict | None = None,
+    extra_repr: str = "",
+) -> str:
+    # lifted from torch.nn.Module.__repr__
+    from torch.nn.modules.module import _addindent
+
+    if _modules is None:
+        _modules = {}
+
+    # We treat the extra repr like the sub-module, one item per line
+    extra_lines = []
+    # empty string will be split into list ['']
+    if extra_repr:
+        extra_lines = extra_repr.split("\n")
+    child_lines = []
+    for key, module in _modules.items():
+        mod_str = repr(module)
+        mod_str = _addindent(mod_str, 2)
+        child_lines.append("(" + key + "): " + mod_str)
+    lines = extra_lines + child_lines
+
+    main_str = name + "("
+    if lines:
+        # simple one-liner info, which most builtin Modules will use
+        if len(extra_lines) == 1 and not child_lines:
+            main_str += extra_lines[0]
+        else:
+            main_str += "\n  " + "\n  ".join(lines) + "\n"
+
+    main_str += ")"
+    return main_str

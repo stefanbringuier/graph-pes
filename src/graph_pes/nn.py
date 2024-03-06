@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Callable
 
 import torch
@@ -9,9 +8,6 @@ from ase.data import chemical_symbols
 from torch import Tensor
 
 from .util import MAX_Z, pairs
-
-# TODO support access to .data via property and setter on ConstrainedParameter
-# / cleanup the ConstrainedParameter class
 
 
 class MLP(nn.Module):
@@ -250,10 +246,10 @@ class PerSpeciesParameter(torch.nn.Parameter):
 
     def __repr__(self) -> str:
         if len(self._accessed_Zs) == 0:
-            return (
-                f"PerSpeciesParameter(dim={tuple(self.shape[1:])}, "
-                f"requires_grad={self.requires_grad})"
-            )
+            dim = tuple(self.shape[1:])
+            if dim == (1,):
+                return "PerSpeciesParameter()"
+            return f"PerSpeciesParameter(dim={dim})"
 
         torch.set_printoptions(threshold=3)
         Zs = sorted(self._accessed_Zs)
@@ -271,15 +267,22 @@ class PerSpeciesParameter(torch.nn.Parameter):
 
         torch.set_printoptions(profile="default")
 
+        dim = tuple(self.shape[1:])
+        if dim == (1,):
+            return f"""\
+PerSpeciesParameter(
+    {lines},
+)"""
         return f"""\
-PerSpeciesParameter({{
-    {lines}
-}}, dim={tuple(self.shape[1:])}, requires_grad={self.requires_grad})"""
+PerSpeciesParameter(
+    {lines}, 
+    dim={dim}, 
+)"""
 
 
 class PerSpeciesEmbedding(torch.nn.Module):
     """
-    A per-speices equivalent of `torch.nn.Embedding`.
+    A per-species equivalent of `torch.nn.Embedding`.
 
     Parameters
     ----------
@@ -302,110 +305,6 @@ class PerSpeciesEmbedding(torch.nn.Module):
 
     def __repr__(self) -> str:
         return f"PerSpeciesEmbedding(dim={self._embeddings.shape[1]})"
-
-
-class ConstrainedParameter(nn.Module, ABC):
-    """
-    Abstract base class for constrained parameters.
-
-    Implementations should override the `_constrained_value` property.
-
-    Parameters
-    ----------
-    x
-        The initial value of the parameter.
-    requires_grad
-        Whether the parameter should be trainable.
-    """
-
-    def __init__(self, x: torch.Tensor, requires_grad: bool = True):
-        super().__init__()
-        self._parameter = nn.Parameter(x, requires_grad)
-
-    @property
-    @abstractmethod
-    def constrained_value(self) -> torch.Tensor:
-        """generate the constrained value"""
-
-    def _do_math(self, other, function, rev=False):
-        if isinstance(other, ConstrainedParameter):
-            other_value = other.constrained_value
-        else:
-            other_value = other
-
-        if rev:
-            return function(other_value, self.constrained_value)
-        else:
-            return function(self.constrained_value, other_value)
-
-    def __add__(self, other):
-        return self._do_math(other, torch.add)
-
-    def __radd__(self, other):
-        return self._do_math(other, torch.add, rev=True)
-
-    def __sub__(self, other):
-        return self._do_math(other, torch.sub)
-
-    def __rsub__(self, other):
-        return self._do_math(other, torch.sub, rev=True)
-
-    def __mul__(self, other):
-        return self._do_math(other, torch.mul)
-
-    def __rmul__(self, other):
-        return self._do_math(other, torch.mul, rev=True)
-
-    def __truediv__(self, other):
-        return self._do_math(other, torch.true_divide)
-
-    def __rtruediv__(self, other):
-        return self._do_math(other, torch.true_divide, rev=True)
-
-    def __pow__(self, other):
-        return self._do_math(other, torch.pow)
-
-    def __rpow__(self, other):
-        return self._do_math(other, torch.pow, rev=True)
-
-    def log(self):
-        return torch.log(self.constrained_value)
-
-    def sqrt(self):
-        return torch.sqrt(self.constrained_value)
-
-    def __repr__(self):
-        t = self.constrained_value
-        if t.numel() == 1:
-            return f"{self.__class__.__name__}({t.item():.4f})"
-        return f"{self.__class__.__name__}({t})"
-
-    def __neg__(self):
-        return self._do_math(0, torch.sub, rev=True)
-
-
-# TODO: make this work with torchscript
-class PositiveParameter(ConstrainedParameter):
-    """
-    Drop-in replacement for :class:`torch.nn.Parameter`. An internal
-    exponentiation ensures that the parameter is always positive.
-
-    Parameters
-    ----------
-    x
-        The initial value of the parameter. Must be positive.
-    requires_grad
-        Whether the parameter should be trainable.
-    """
-
-    def __init__(self, x: torch.Tensor | float, requires_grad: bool = True):
-        if not isinstance(x, torch.Tensor):
-            x = torch.tensor(x)
-        super().__init__(torch.log(x), requires_grad)
-
-    @property
-    def constrained_value(self):
-        return torch.exp(self._parameter)
 
 
 class HaddamardProduct(nn.Module):
