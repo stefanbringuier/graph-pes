@@ -96,6 +96,12 @@ def test_sum_per_structure():
     x = torch.tensor([1, 2, 3, 4, 5])
     assert sum_per_structure(x, batch).tolist() == [3, 12]
 
+    # and also for general sizes
+
+    x = torch.ones(2, 3, 4)
+    result = sum_per_structure(x, graphs[0])
+    assert result.shape == (3, 4)
+
 
 def test_data_loader():
     loader = AtomicDataLoader(GRAPHS, batch_size=2)

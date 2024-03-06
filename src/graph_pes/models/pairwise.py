@@ -9,6 +9,7 @@ from graph_pes.data import (
     AtomicGraphBatch,
     keys,
     neighbour_distances,
+    sum_over_neighbours,
 )
 from graph_pes.transform import PerAtomShift
 from jaxtyping import Float
@@ -76,13 +77,10 @@ class PairPotential(GraphPESModel, ABC):
 
         V = self.interaction(
             distances.view(-1, 1), Z_i.view(-1, 1), Z_j.view(-1, 1)
-        )
+        )  # (E, 1)
 
         # sum over the neighbours
-        energies = torch.zeros_like(
-            graph[keys.ATOMIC_NUMBERS], dtype=torch.float
-        )
-        energies.scatter_add_(0, central_atoms, V.squeeze())
+        energies = sum_over_neighbours(V.squeeze(), graph)
 
         # divide by 2 to avoid double counting
         return energies / 2

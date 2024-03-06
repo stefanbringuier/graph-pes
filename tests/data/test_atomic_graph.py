@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
 from ase import Atoms
 from graph_pes.data import (
     AtomicGraph,
@@ -11,17 +12,19 @@ from graph_pes.data import (
     neighbour_vectors,
     number_of_atoms,
     number_of_edges,
+    sum_over_neighbours,
 )
 
 ISOLATED_ATOM = Atoms("H", positions=[(0, 0, 0)], pbc=False)
 PERIODIC_ATOM = Atoms("H", positions=[(0, 0, 0)], pbc=True, cell=(1, 1, 1))
+DIMER = Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)], pbc=False)
 RANDOM_STRUCTURE = Atoms(
     "H8",
     positions=np.random.RandomState(42).rand(8, 3),
     pbc=True,
     cell=np.eye(3),
 )
-STRUCTURES = [ISOLATED_ATOM, PERIODIC_ATOM, RANDOM_STRUCTURE]
+STRUCTURES = [ISOLATED_ATOM, PERIODIC_ATOM, DIMER, RANDOM_STRUCTURE]
 GRAPHS = convert_to_atomic_graphs(STRUCTURES, cutoff=1.0)
 
 
@@ -57,13 +60,6 @@ def test_random_structure(cutoff: int):
     assert neighbour_distances(graph).max() <= cutoff
 
 
-# def test_warning_on_position():
-#     # check that a warning is raised if the user tries to access the positions
-#     # directly for a structure with a unit cell
-#     with pytest.warns(UserWarning):
-#         _ = GRAPHS[1].positions
-
-
 def test_get_labels():
     atoms = Atoms("H2", positions=[(0, 0, 0), (0, 0, 1)], pbc=False)
     atoms.info["energy"] = -1.0
@@ -78,3 +74,20 @@ def test_get_labels():
 
     with pytest.raises(KeyError):
         graph["missing"]
+
+
+# in each of these structures, each atom has the same number of neighbours,
+# making it easy to test that the sum over neighbours is correct
+@pytest.mark.parametrize("structure", [ISOLATED_ATOM, DIMER, PERIODIC_ATOM])
+def test_sum_over_neighbours(structure):
+    graph = convert_to_atomic_graph(structure, cutoff=1.1)
+    N = number_of_atoms(graph)
+    E = number_of_edges(graph)
+
+    n_neighbours = (graph["neighbour_index"][0] == 0).sum()
+
+    for shape in [(E,), (E, 2), (E, 2, 3), (E, 2, 2, 2)]:
+        edge_property = torch.ones(shape)
+        result = sum_over_neighbours(edge_property, graph)
+        assert result.shape == (N, *shape[1:])
+        assert (result == n_neighbours).all()

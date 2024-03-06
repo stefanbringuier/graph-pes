@@ -9,8 +9,9 @@ import torch
 from ase.neighborlist import neighbor_list
 from torch import Tensor
 from torch.utils.data import DataLoader as TorchDataLoader
-from torch_geometric.utils import scatter
 from typing_extensions import TypeAlias
+
+from graph_pes.nn import left_aligned_mul
 
 from . import keys
 from .graph_typing import AtomicGraph as AtomicGraphType
@@ -235,6 +236,53 @@ def convert_to_atomic_graphs(
     ]
 
 
+def sum_over_neighbours(p: Tensor, graph: AtomicGraph) -> Tensor:
+    r"""
+    Sum a per-edge property, :math:`p^e_{ij}` over neighbours to get a
+    per-atom property, :math:`p_i`:
+
+    ..math::
+        p_i = \sum_{j \in \mathcal{N}_i} p^e_{ij}
+
+    where :math:`p_i \in \mathbb{R}^{a \times b \times \ldots}`, i.e.
+    supports broadcasting over arbitrary tensor shapes. In all cases,
+    if :math:`|\mathcal{N}_i| = 0`, then
+    :math:`p_i = 0^{a \times b \times \dots}`.
+
+    Parameters
+    ----------
+    p
+        The per-edge property to sum.
+    graph
+        The graph to sum the property for.
+    """
+    N = number_of_atoms(graph)
+    central_atoms = graph[keys.NEIGHBOUR_INDEX][0]  # shape: (E,)
+
+    # optimised implementations for common cases
+    if p.dim() == 1:
+        zeros = torch.zeros(N, dtype=p.dtype, device=p.device)
+        return zeros.scatter_add(0, central_atoms, p)
+
+    elif p.dim() == 2:
+        C = p.shape[1]
+        zeros = torch.zeros(N, C, dtype=p.dtype, device=p.device)
+        return zeros.scatter_add(0, central_atoms.unsqueeze(1).expand(-1, C), p)
+
+    shape = (N,) + p.shape[1:]
+    zeros = torch.zeros(shape, dtype=p.dtype, device=p.device)
+
+    if p.shape[0] == 0:
+        # return all zeros if there are no atoms
+        return zeros
+
+    # create `index`, where index[e].shape = p.shape[1:]
+    # and (index[e] == central_atoms[e]).all()
+    ones = torch.ones_like(zeros)
+    index = left_aligned_mul(ones, central_atoms).long()
+    return zeros.scatter_add(0, index, p)
+
+
 #### BATCHING ####
 
 
@@ -291,8 +339,21 @@ def batch_graphs(graphs: list[AtomicGraph]) -> AtomicGraphBatch:
 
 
 def sum_per_structure(x: Tensor, graph: AtomicGraph) -> Tensor:
-    """
-    Sum a per-atom property to get a per-structure property.
+    r"""
+    Sum a per-atom property, :math:`p` to get a per-structure property,
+    :math:`P`:
+
+    If a single structure is present, then:
+
+    ..math::
+        P = \sum_i p_i
+
+    If a batch of structures is present, then:
+
+    ..math::
+        P_s = \sum_{i \in S} p_i
+
+    where :math:`S` is the collection of all atoms in structure :math:`s`.
 
     Parameters
     ----------
@@ -303,13 +364,12 @@ def sum_per_structure(x: Tensor, graph: AtomicGraph) -> Tensor:
     """
 
     if is_batch(graph):
-        # we have more than one structure: sum over local energies to
-        # get a total energy for each structure
         batch = graph[keys.BATCH]  # type: ignore
-        return scatter(x, batch, dim=0, reduce="sum")
+        shape = (number_of_structures(graph),) + x.shape[1:]
+        zeros = torch.zeros(shape, dtype=x.dtype, device=x.device)
+        return zeros.scatter_add(0, batch, x)
     else:
-        # we only have one structure: sum over all the atoms
-        return x.sum()
+        return x.sum(dim=0)
 
 
 def number_of_structures(batch: AtomicGraph) -> int:
