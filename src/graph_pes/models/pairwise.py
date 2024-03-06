@@ -106,6 +106,18 @@ class LennardJones(PairPotential):
         The maximum depth of the potential.
     sigma:
         The distance at which the potential is zero.
+
+    Example
+    -------
+    .. code-block:: python
+
+        from graph_pes.analysis import dimer_curve
+        from graph_pes.models.zoo import LennardJones
+
+        dimer_curve(LennardJones(), system="H2", rmax=3.5)
+
+    .. image:: lj-dimer.svg
+        :align: center
     """
 
     def __init__(self, epsilon: float = 0.1, sigma: float = 1.0):
@@ -178,9 +190,30 @@ class Morse(PairPotential):
     where :math:`r_{ij}` is the distance between atoms :math:`i` and :math:`j`,
     and :math:`D`, :math:`a` and :math:`r_0` are strictly positive parameters
     that control the depth, width and center of the potential well respectively.
+
+    Parameters
+    ----------
+    D:
+        The maximum depth of the potential.
+    a:
+        A measure of the width of the potential.
+    r0:
+        The distance at which the potential is at its minimum.
+
+    Example
+    -------
+    .. code-block:: python
+
+        from graph_pes.analysis import dimer_curve
+        from graph_pes.models.zoo import Morse
+
+        dimer_curve(Morse(), system="H2", rmax=3.5)
+
+    .. image:: morse-dimer.svg
+        :align: center
     """
 
-    def __init__(self, D: float = 0.1, a: float = 3.0, r0: float = 1.0):
+    def __init__(self, D: float = 0.1, a: float = 3.0, r0: float = 1.5):
         super().__init__()
         self._log_D = torch.nn.Parameter(torch.tensor(D).log())
         self._log_a = torch.nn.Parameter(torch.tensor(a).log())

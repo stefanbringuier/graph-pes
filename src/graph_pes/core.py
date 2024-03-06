@@ -67,14 +67,14 @@ class GraphPESModel(nn.Module, ABC):
         """
         Perform optional pre-processing of the training data.
 
-        By default, this fits a :class:`graph_pes.transform.PerAtomScale`
-        and :class:`graph_pes.transform.PerAtomShift` to the energies
+        By default, this fits a :class:`~graph_pes.transform.PerAtomScale`
+        and :class:`~graph_pes.transform.PerAtomShift` to the energies
         of the training data, such that, before training, a unit-Normal
         output by the underlying model will result in energy predictions
         that are distributed according to the training data.
 
         For an example customisation of this method, see the
-        :class:`LennardJones <graph_pes.models.pairwise.LennardJones>`
+        :class:`~graph_pes.models.pairwise.LennardJones`
         `implementation
         <_modules/graph_pes/models/pairwise.html#LennardJones>`_.
 

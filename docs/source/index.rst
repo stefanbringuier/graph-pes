@@ -16,7 +16,7 @@
 ################################
 
 
-:code:`graph-pes` is a framework for building, training and analysing potential energy surfaces (PESs) that act on
+:code:`graph-pes` is a framework for building, training and analysing potential energy surface (PES) models that act on
 graph representations of atomic structures.
 
 Getting Started

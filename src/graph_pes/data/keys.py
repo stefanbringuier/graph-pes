@@ -27,4 +27,4 @@ if TYPE_CHECKING:
 else:
     LabelKey = str
 
-ALL_LABEL_KEYS: list[LabelKey] = [ENERGY, FORCES, STRESS]
+ALL_LABEL_KEYS: "list[LabelKey]" = [ENERGY, FORCES, STRESS]

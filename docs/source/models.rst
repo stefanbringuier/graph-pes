@@ -5,16 +5,13 @@ Models
 ######
 
 All models implemented in ``graph_pes`` are subclasses of
-:class:`graph_pes.core.GraphPESModel`. 
+:class:`graph_pes.GraphPESModel`. 
 
 
-.. autoclass:: graph_pes.core.GraphPESModel
+.. autoclass:: graph_pes.GraphPESModel
    :members: 
    :show-inheritance:
 
-.. autoclass:: graph_pes.core.EnergySummation
-   :members: 
-   :show-inheritance:
 
 
 Available Models

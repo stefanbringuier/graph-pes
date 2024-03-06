@@ -178,19 +178,22 @@ def convert_to_atomic_graph(
 
     Parameters
     ----------
-    structures
+    structure
         The ASE Atoms object.
     cutoff
         The cutoff distance for neighbour finding.
-    atom_labels
-        The names of any additional per-atom labels to include in the graph.
-        If not provided, all possible labels will be included.
-    structure_labels
-        The names of any additional per-structure labels to include in the
-        graph. If not provided, all possible labels will be included.
     property_mapping
-        A mapping from custom property labels to the standard property
-        names (e.g. "totalenergy" -> "energy")
+        An optional mapping defining how relevant properties are labelled
+        on the ASE Atoms object. If not provided, then the default mapping
+        is used:
+
+        .. code-block:: python
+
+                {
+                    keys.ENERGY: "energy",
+                    keys.FORCES: "forces",
+                    keys.STRESS: "stress",
+                }
     """
 
     i, j, offsets = neighbor_list("ijS", structure, cutoff)
