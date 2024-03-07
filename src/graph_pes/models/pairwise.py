@@ -152,22 +152,27 @@ class LennardJones(PairPotential):
         return 4 * self.epsilon * (x**12 - x**6)
 
     def pre_fit(self, graph: AtomicGraphBatch):
-        assert "energy" in graph
+        # set the distance at which the potential is zero to be
+        # close to the minimum pair-wise distance
+        d = torch.quantile(neighbour_distances(graph), 0.01)
+        self._log_sigma = torch.nn.Parameter(d.log())
 
+        assert "energy" in graph
         # epsilon is already a scaling term, so we only need to
         # learn a shift parameter (rather than a shift and scale):
-        transform = PerAtomShift().fit(graph["energy"], graph)
+        transform = PerAtomShift()
+
+        # we want the predictions of the model to be centered around 0
+        # after this process
+        with torch.no_grad():
+            current_predictions = self(graph)
+        transform.fit(graph["energy"] - current_predictions, graph)
 
         # This transform maps total energies to a distribution with
         # 0 mean. We want to go the other way (i.e. transform our raw
         # predictions (with ~0 mean) into total energies, and so we use
         # the inverse of the transform.
         self.energy_transform = transform.inverse()
-
-        # set the distance at which the potential is zero to be
-        # close to the minimum pair-wise distance
-        d = torch.quantile(neighbour_distances(graph), 0.01)
-        self._log_sigma = torch.nn.Parameter(d.log())
 
     def __repr__(self):
         return pytorch_repr(
@@ -213,7 +218,7 @@ class Morse(PairPotential):
         :align: center
     """
 
-    def __init__(self, D: float = 0.1, a: float = 3.0, r0: float = 1.5):
+    def __init__(self, D: float = 0.1, a: float = 5.0, r0: float = 1.5):
         super().__init__()
         self._log_D = torch.nn.Parameter(torch.tensor(D).log())
         self._log_a = torch.nn.Parameter(torch.tensor(a).log())
@@ -253,20 +258,19 @@ class Morse(PairPotential):
         return self.D * (1 - torch.exp(-self.a * (r - self.r0))) ** 2
 
     def pre_fit(self, graph: AtomicGraphBatch):
-        assert "energy" in graph
-        transform = PerAtomShift().fit(graph["energy"], graph)
-        self.energy_transform = transform.inverse()
-
-        # set the potential depth to be shallow
-        self._log_D = torch.nn.Parameter(torch.tensor(0.1).log())
-
         # set the center of the well to be close to the minimum pair-wise
         # distance
-        d = torch.quantile(neighbour_distances(graph), 0.01)
+        d = torch.quantile(neighbour_distances(graph), 0.1) + 0.1
         self._log_r0 = torch.nn.Parameter(d.log())
 
-        # set the width to be "reasonable"
-        self._log_a = torch.nn.Parameter(torch.tensor(3.0).log())
+        assert "energy" in graph
+        with torch.no_grad():
+            current_predictions = self(graph)
+        self.energy_transform = (
+            PerAtomShift()
+            .fit(graph["energy"] - current_predictions, graph)
+            .inverse()
+        )
 
     def __repr__(self):
         return pytorch_repr(

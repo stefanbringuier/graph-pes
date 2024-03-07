@@ -112,9 +112,7 @@ def to_significant_figures(x: float | int, sf: int = 3) -> float:
 
 
 def pytorch_repr(
-    name: str,
-    _modules: dict | None = None,
-    extra_repr: str = "",
+    name: str, _modules: dict | None = None, extra_repr: str = ""
 ) -> str:
     # lifted from torch.nn.Module.__repr__
     from torch.nn.modules.module import _addindent

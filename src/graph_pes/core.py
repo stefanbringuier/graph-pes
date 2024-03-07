@@ -28,17 +28,16 @@ class GraphPESModel(nn.Module, ABC):
         E(\mathcal{G}) = \sum_i \varepsilon_i
 
     To create such a model, implement :meth:`predict_local_energies`,
-    which takes an :class:`AtomicGraph`, or an :class:`AtomicGraphBatch`,
+    which takes an :class:`~graph_pes.data.AtomicGraph`, or an
+    :class:`~graph_pes.data.AtomicGraphBatch`,
     and returns a per-atom prediction of the local energy. For a simple example,
     see the :class:`PairPotential <graph_pes.models.pairwise.PairPotential>`
     `implementation <_modules/graph_pes/models/pairwise.html#PairPotential>`_.
 
-    Under the hood, :class:`GraphPESModel`s pass the local energy predictions
+    Under the hood, :class:`GraphPESModel`\ s pass the local energy predictions
     through a :class:`graph_pes.transform.Transform` before summing them to
     get the total energy. By default, this learns a per-species local-energy
-    offset and scale. This can be overridden by setting the
-    :attr:`energy_transform` attribute to any custom
-    :class:`graph_pes.transform.Transform`, trainable or otherwise.
+    offset and scale. This can be changed by directly altering the
     """
 
     @abstractmethod
@@ -230,7 +229,6 @@ def get_predictions(
 ) -> Tensor: ...
 
 
-# TODO: implement max batch size
 def get_predictions(
     model: GraphPESModel,
     graph: AtomicGraph | AtomicGraphBatch | list[AtomicGraph],

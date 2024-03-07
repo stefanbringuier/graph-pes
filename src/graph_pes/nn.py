@@ -263,7 +263,7 @@ class PerSpeciesParameter(torch.nn.Parameter):
         for z, values in zip(Zs, matrix.split("\n")):
             lines.append(f"{chemical_symbols[z]:>2} : {values.strip()}")
 
-        lines = "\n   ".join(lines)
+        lines = "\n    ".join(lines)
 
         torch.set_printoptions(profile="default")
 

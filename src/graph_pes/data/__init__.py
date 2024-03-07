@@ -16,12 +16,16 @@ from graph_pes.nn import left_aligned_mul
 from . import keys
 from .graph_typing import AtomicGraph as AtomicGraphType
 from .graph_typing import AtomicGraphBatch as AtomicGraphBatchType
+from .utils import random_split
 
 __all__ = [
     "AtomicGraph",
     "is_batch",
     "neighbour_vectors",
     "neighbour_distances",
+    "random_split",
+    "convert_to_atomic_graph",
+    "convert_to_atomic_graphs",
 ]
 
 
