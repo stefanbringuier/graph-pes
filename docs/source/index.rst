@@ -31,6 +31,9 @@ Getting Started
 .. literalinclude:: quickstart.py
     :language: python
 
+.. image:: quickstart.svg
+    :align: center
+
 For a more detailed introduction, see an example notebook `here <notebooks/example.html>`_. 
 For under-the-hood details see :func:`train_model() <graph_pes.training.train_model>`.
 

@@ -5,7 +5,7 @@ Models
 ######
 
 All models implemented in ``graph_pes`` are subclasses of
-:class:`graph_pes.GraphPESModel`. 
+:class:`~graph_pes.GraphPESModel`. 
 
 
 .. autoclass:: graph_pes.GraphPESModel

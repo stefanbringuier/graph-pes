@@ -1,16 +1,23 @@
 from ase.io import read
+from graph_pes.analysis import parity_plot
 from graph_pes.data import convert_to_atomic_graphs, random_split
-from graph_pes.models.pairwise import LennardJones
+from graph_pes.models.zoo import LennardJones
 from graph_pes.training import train_model
+from graph_pes.transform import DividePerAtom
 
-# load data using ASE
-atoms = read("structures.xyz", index=":200")
-graphs = convert_to_atomic_graphs(atoms, cutoff=3.0)
-train, val, test = random_split(graphs, [160, 20, 20])
+# 1. load some (labelled) structures
+structures = read("structures.xyz", index=":")
+assert "energy" in structures[0].info
 
-# train the model
-best_model = train_model(LennardJones(), train, val)
+# 2. convert to graphs (e.g. using a radius cutoff)
+graphs = convert_to_atomic_graphs(structures, cutoff=5.0)
+train, val, test = random_split(graphs, [100, 25, 25])
 
-# make predictions
-test_predictions = best_model.predict(test)
-# {'energy': ..., 'forces': ..., 'stress': ...}
+# 3. define the model
+model = LennardJones()
+
+# 4. train
+train_model(model, train, val, max_epochs=100)
+
+# 5. evaluate
+parity_plot(model, test, units="eV / atom", transform=DividePerAtom())
