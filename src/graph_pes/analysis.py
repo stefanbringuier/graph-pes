@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Sequence
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -57,7 +59,7 @@ def move_axes(ax: plt.Axes | None = None):  # type: ignore
 # energy: per-atom with arbitrary shift
 def parity_plot(
     model: GraphPESModel,
-    graphs: AtomicGraphBatch | list[AtomicGraph],
+    graphs: AtomicGraphBatch | Sequence[AtomicGraph],
     property: keys.LabelKey = keys.ENERGY,
     property_label: str | None = None,
     transform: Transform | None = None,
@@ -137,7 +139,7 @@ def parity_plot(
         property_label = property
 
     # get the predictions and labels
-    if isinstance(graphs, list):
+    if isinstance(graphs, Sequence):
         graphs = to_batch(graphs)
 
     ground_truth = transform(graphs[property_label], graphs).detach()
