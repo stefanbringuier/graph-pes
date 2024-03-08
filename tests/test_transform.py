@@ -62,7 +62,7 @@ def test_per_atom_transforms():
 
     # fit shift to the total energies
     shift = PerAtomShift(trainable=False)
-    total_energies: torch.Tensor = batch["energy"]  # type: ignore
+    total_energies: torch.Tensor = batch["energy"]
     shift.fit_to_source(total_energies, batch)
     shifted_total_energies = shift(total_energies, batch)
 

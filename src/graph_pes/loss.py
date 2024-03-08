@@ -5,7 +5,7 @@ from typing import Callable
 import torch
 from torch import Tensor, nn
 
-from .data import AtomicGraphBatch, keys
+from .data import LabelledBatch, keys
 from .transform import Identity, Transform
 
 
@@ -66,14 +66,14 @@ class Loss(nn.Module):
     def __call__(
         self,
         predictions: dict[keys.LabelKey, torch.Tensor],
-        graphs: AtomicGraphBatch,
+        graphs: LabelledBatch,
     ) -> torch.Tensor:
         return super().__call__(predictions, graphs)
 
     def forward(
         self,
         predictions: dict[keys.LabelKey, torch.Tensor],
-        graphs: AtomicGraphBatch,
+        graphs: LabelledBatch,
     ) -> torch.Tensor:
         """
         Computes the loss value.
@@ -88,13 +88,13 @@ class Loss(nn.Module):
 
         return self.metric(
             self.transform(predictions[self.property_key], graphs),
-            self.transform(graphs[self.property_key], graphs),  # type: ignore
+            self.transform(graphs[self.property_key], graphs),
         )
 
     def raw(
         self,
         predictions: dict[keys.LabelKey, torch.Tensor],
-        graphs: AtomicGraphBatch,
+        graphs: LabelledBatch,
     ) -> torch.Tensor:
         """
         Compute the metric as applied directly to the predictions and labels.
@@ -109,10 +109,10 @@ class Loss(nn.Module):
 
         return self.metric(
             predictions[self.property_key],
-            graphs[self.property_key],  # type: ignore
+            graphs[self.property_key],
         )
 
-    def fit_transform(self, graphs: AtomicGraphBatch):
+    def fit_transform(self, graphs: LabelledBatch):
         """
         Fit the transform to the target labels.
 
@@ -122,7 +122,7 @@ class Loss(nn.Module):
             The graphs containing the labels.
         """
 
-        self.transform.fit_to_target(graphs[self.property_key], graphs)  # type: ignore
+        self.transform.fit_to_target(graphs[self.property_key], graphs)
 
     @property
     def name(self) -> str:
@@ -205,14 +205,14 @@ class WeightedLoss(torch.nn.Module):
     def __true_div__(self, other: float) -> WeightedLoss:
         return WeightedLoss(self.losses, [w / other for w in self.weights])
 
-    def fit_transform(self, graphs: AtomicGraphBatch):
+    def fit_transform(self, graphs: LabelledBatch):
         for loss in self.losses:
             loss.fit_transform(graphs)
 
     def forward(
         self,
         predictions: dict[keys.LabelKey, torch.Tensor],
-        graphs: AtomicGraphBatch,
+        graphs: LabelledBatch,
     ) -> torch.Tensor:
         return sum(
             w * loss(predictions, graphs)

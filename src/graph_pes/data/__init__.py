@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Dict, Iterator, Mapping, Sequence, overload
+from typing import (
+    TYPE_CHECKING,
+    Dict,
+    Iterator,
+    Mapping,
+    Sequence,
+    no_type_check,
+    overload,
+)
 
 import ase
 import numpy as np
@@ -52,18 +60,21 @@ class AtomicGraph_Impl(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    # throughout, we are using self, which does not strictly adhere to the
+    # AtomicGraph type due to torchscript limitations.
+    @no_type_check
     def __repr__(self):
         info = {}
 
-        if is_batch(self):  # type: ignore
+        if is_batch(self):
             name = "AtomicGraphBatch"
-            info["structures"] = number_of_structures(self)  # type: ignore
+            info["structures"] = number_of_structures(self)
         else:
             name = "AtomicGraph"
 
-        info["atoms"] = number_of_atoms(self)  # type: ignore
-        info["edges"] = self[keys.NEIGHBOUR_INDEX].shape[1]  # type: ignore
-        info["has_cell"] = has_cell(self)  # type: ignore
+        info["atoms"] = number_of_atoms(self)
+        info["edges"] = self[keys.NEIGHBOUR_INDEX].shape[1]
+        info["has_cell"] = has_cell(self)
 
         labels = [label for label in keys.ALL_LABEL_KEYS if label in self]
         if labels:
@@ -358,7 +369,9 @@ def to_batch(graphs: Sequence[AtomicGraph]) -> AtomicGraphBatch: ...
 
 
 @torch.no_grad()
-def to_batch(graphs: Sequence[AtomicGraph]) -> AtomicGraphBatch:
+def to_batch(
+    graphs: Sequence[AtomicGraph | LabelledGraph],
+) -> AtomicGraphBatch | LabelledBatch:
     """
     Collate a sequence of atomic graphs into a single batch object.
 
