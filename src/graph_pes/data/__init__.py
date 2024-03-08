@@ -74,7 +74,14 @@ class AtomicGraph_Impl(dict):
 
 
 def is_batch(graph: AtomicGraph) -> bool:
-    """Is the data in `graph` batched?"""
+    """
+    Does ``graph`` represent a batch of atomic graphs?
+
+    Parameters
+    ----------
+    graph
+        The graph to check.
+    """
 
     return "batch" in graph
 

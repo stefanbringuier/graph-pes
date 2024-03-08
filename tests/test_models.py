@@ -15,7 +15,7 @@ from graph_pes.data import (
     to_atomic_graphs,
     to_batch,
 )
-from graph_pes.models.zoo import LennardJones, Morse
+from graph_pes.models.zoo import ALL_MODELS, LennardJones, Morse
 from graph_pes.transform import PerAtomShift
 
 structures: list[Atoms] = read("tests/test.xyz", ":")  # type: ignore
@@ -103,3 +103,22 @@ def test_pre_fit():
             assert model.energy_transform.shift[29] == 0
         else:
             assert model.energy_transform.shift[29] != 0
+
+
+@pytest.mark.parametrize(
+    "model",
+    ALL_MODELS,
+    ids=[m.__name__ for m in ALL_MODELS],
+)
+def test_model_serialisation(model: type[GraphPESModel], tmp_path):
+    m = model()
+    m.pre_fit(graphs)
+
+    torch.save(m.state_dict(), tmp_path / "model.pt")
+
+    m2 = model()
+    # check no errors occur
+    m2.load_state_dict(torch.load(tmp_path / "model.pt"))
+
+    # check predictions are the same
+    assert torch.allclose(m(graphs[0]), m2(graphs[0]))

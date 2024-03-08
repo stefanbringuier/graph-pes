@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from graph_pes.core import GraphPESModel
+
 from .painn import PaiNN
 from .pairwise import LennardJones, Morse
 from .schnet import SchNet
@@ -10,3 +14,5 @@ __all__ = [
     "TensorNet",
     "Morse",
 ]
+
+ALL_MODELS: list[type[GraphPESModel]] = [globals()[model] for model in __all__]

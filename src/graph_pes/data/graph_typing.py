@@ -7,9 +7,9 @@ from torch import Tensor
 
 class AtomicGraph(TypedDict):
     r"""
-    An :class:`AtomicGraph` is a representation of an atomic structure.
-    Each node corresponds to an atom, and each edge links two atoms that
-    are “bonded”.
+    An :class:`AtomicGraph` represents an atomic structure.
+    Each node corresponds to an atom, and each directed edge links a central
+    atom to a "bonded" neighbour.
 
     We implement such graphs as simple dictionaries from property strings to
     PyTorch :class:`Tensors <torch.Tensor>`. This allows for easy serialisation
@@ -29,7 +29,7 @@ class AtomicGraph(TypedDict):
           - atomic number (Z) of each atom
         * - :code:`"neighbour_index"`
           - :code:`(2, E)`
-          - indices of each neighbour pair
+          - indices of each directed neighbour pair
         * - :code:`"_positions"`
           - :code:`(N, 3)`
           - cartesian position of each atom
@@ -44,9 +44,10 @@ class AtomicGraph(TypedDict):
 
 
     Direct access of the position and cell-offset properties is discouraged,
-    as indicated by the leading underscore. We implement a wide range of
-    derived properties, such as :func:`~graph_pes.data.neighbour_distances`,
-    that correctly handle periodic boundary conditions and other subtleties.
+    as indicated by the leading underscore. We provide implementations for a
+    wide range of derived properties, such as
+    :func:`~graph_pes.data.neighbour_distances`, that correctly handle periodic
+    boundary conditions and other subtleties.
 
     Example
     -------
@@ -76,6 +77,9 @@ class AtomicGraph(TypedDict):
 
 class AtomicGraphBatch(AtomicGraph):
     """
+    We represent a batch of atomic graphs as a single larger graph containing
+    disjoint subgraphs corresponding to each structure. l
+
     Together with all the properties defined on :class:`AtomicGraph`,
     an :class:`AtomicGraphBatch` containing ``S`` structures and a total
     of ``N`` atoms has two additional properties:
