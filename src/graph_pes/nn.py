@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from typing import Callable
-
 import torch
 import torch.nn as nn
-from ase.data import chemical_symbols
 from torch import Tensor
 
 from .util import MAX_Z, pairs
@@ -138,173 +135,121 @@ class Product(nn.Module):
         return out
 
 
-class PerSpeciesParameter(torch.nn.Parameter):
-    """
-    A parameter that is indexed by unqiue atomic numbers.
+from functools import reduce
+from typing import Iterable
 
-    Lazily keeps track of which atomic numbers have been accessed
-    so as to give accurate counts of trainable parameters.
 
-    Instantiate using the `PerSpeciesParameter.of_dim` class method.
+def prod(iterable):
+    return reduce(lambda x, y: x * y, iterable, 1)
 
-    Examples
-    --------
-    >>> import torch
-    >>> from graph_pes.nn import PerSpeciesParameter
-    >>> param = PerSpeciesParameter.of_dim(10)
-    >>> # do some computation involving some atomic numbers
-    >>> ...
-    >>> param[1], param[6]  # access the parameters for H and C at some point
-    >>> param.numel()  # get the number of trainable parameters
-    20
-    >>> param
-    PerSpeciesParameter({
-         Z : (10,)
-         3 : [ 0.6450, -0.1432, -0.5998,  ...,  0.6023, -0.3033,  0.3528],
-        12 : [-0.2076, -1.3792, -0.0791,  ..., -1.5645,  1.5325, -0.7080]
-    }, requires_grad=True)
-    """
 
-    # include these args for type hint reasons, class construction
-    # actually takes place in __new__, as defined in PyTorch
+class PerElementParameter(torch.nn.Parameter):
+    def __new__(
+        cls, data: Tensor, requires_grad: bool = True
+    ) -> PerElementParameter:
+        return super().__new__(cls, data, requires_grad=requires_grad)  # type: ignore
+
     def __init__(self, data: Tensor, requires_grad: bool = True):
         super().__init__()
-
-        # we lazily keep track of which atomic numbers have been accessed
-        # so as to provide a correct number of trainable weights
+        # set extra state
         self._accessed_Zs = set()
+        # set this to an arbitrary value: this gets updated post-init
+        self._index_dims: int = 1
+
+    def register_elements(self, Zs: Iterable[int]) -> None:
+        self._accessed_Zs.update(sorted(Zs))
 
     @classmethod
-    def of_dim(
+    def of_shape(
         cls,
-        dim: int,
+        shape: tuple[int, ...] = (),
+        index_dims: int = 1,
+        default_value: float | None = None,
         requires_grad: bool = True,
-        generator: Callable[[tuple[int, int]], Tensor]
-        | int
-        | float
-        | None = None,
-    ):
-        """
-        Create a `PerSpeciesParameter` of the given dimension.
-
-        Parameters
-        ----------
-        dim
-            The size of the parameter.
-        generator
-            The generator to use to create the parameter. Defaults to
-            `torch.randn`.
-        requires_grad
-            Whether the parameter should be trainable.
-        """
-        if isinstance(generator, (int, float)):
-            data = torch.full((MAX_Z, dim), generator).float()
-        elif generator is None:
-            data = torch.randn(MAX_Z, dim)
+    ) -> PerElementParameter:
+        actual_shape = tuple([MAX_Z] * index_dims) + shape
+        if default_value is not None:
+            data = torch.full(actual_shape, float(default_value))
         else:
-            data = generator((MAX_Z, dim))
-        return PerSpeciesParameter(data=data, requires_grad=requires_grad)
+            data = torch.randn(actual_shape)
+        psp = PerElementParameter(data, requires_grad=requires_grad)
+        psp._index_dims = index_dims
+        return psp
 
-    def __getitem__(self, Z: int | Tensor) -> Tensor:
-        """
-        Index the values corresponding to the given atomic number/s.
-
-        Parameters
-        ----------
-        Z
-            The atomic number/s of the parameter to get.
-        """
-
-        if isinstance(Z, int):
-            self._accessed_Zs.add(Z)
-        else:
-            for Z_i in torch.unique(Z):
-                self._accessed_Zs.add(Z_i.item())
-        return super().__getitem__(Z)
-
-    def __setitem__(self, Z: int | Tensor, value: Tensor):
-        """
-        Index the values corresponding to the given atomic number/s.
-
-        Parameters
-        ----------
-        Z
-            The atomic number/s of the parameter to get.
-        """
-
-        if isinstance(Z, int):
-            self._accessed_Zs.add(Z)
-        else:
-            for Z_i in torch.unique(Z):
-                self._accessed_Zs.add(Z_i.item())
-        return super().__setitem__(Z, value)
+    @classmethod
+    def of_length(
+        cls,
+        length: int,
+        index_dims: int = 1,
+        default_value: float | None = None,
+        requires_grad: bool = True,
+    ) -> PerElementParameter:
+        return PerElementParameter.of_shape(
+            (length,), index_dims, default_value, requires_grad
+        )
 
     def numel(self) -> int:
-        """Get the number of trainable parameters."""
+        n_elements = len(self._accessed_Zs)
+        accessed_parameters = n_elements**self._index_dims
+        parameter_length = prod(self.shape[self._index_dims :])
+        return accessed_parameters * parameter_length
 
-        return sum(self[Z].numel() for Z in self._accessed_Zs)
+    # needed for de/serialization
+    def __reduce_ex__(self, proto):
+        return (
+            _rebuild_per_element_parameter,
+            (self.data, self.requires_grad, torch._utils._get_obj_state(self)),
+        )
 
     def __repr__(self) -> str:
-        if len(self._accessed_Zs) == 0:
-            dim = tuple(self.shape[1:])
-            if dim == (1,):
-                return "PerSpeciesParameter()"
-            return f"PerSpeciesParameter(dim={dim})"
-
-        torch.set_printoptions(threshold=3)
-        Zs = sorted(self._accessed_Zs)
-        with torch.no_grad():
-            matrix = str(self.data[Zs])
-        matrix = matrix[8:-2]  # remove "tensor([" and "])"
-
-        # generate a dictionary of atomic numbers to
-        # their (nicely formatted) values
-        lines = []
-        for z, values in zip(Zs, matrix.split("\n")):
-            lines.append(f"{chemical_symbols[z]:>2} : {values.strip()}")
-
-        lines = "\n    ".join(lines)
-
-        torch.set_printoptions(profile="default")
-
-        dim = tuple(self.shape[1:])
-        if dim == (1,):
-            return f"""\
-PerSpeciesParameter(
-    {lines},
-)"""
-        return f"""\
-PerSpeciesParameter(
-    {lines}, 
-    dim={dim}, 
-)"""
+        # TODO implement custom repr for different shapes
+        # 1 index dimension:
+        #     table with header column for Z
+        # 2 index dimensions with singleton further shape:
+        #      2D table with Z as both header row and header column
+        # print numel otherwise
+        return (
+            f"PSP(index_dims={self._index_dims}, "
+            f"accessed_Zs={sorted(self._accessed_Zs)}, "
+            f"shape={tuple(self.shape[self._index_dims:])})"
+        )
 
 
-class PerSpeciesEmbedding(torch.nn.Module):
+def _rebuild_per_element_parameter(data, requires_grad, state):
+    psp = PerElementParameter(data, requires_grad)
+    psp._accessed_Zs = state["_accessed_Zs"]
+    psp._index_dims = state["_index_dims"]
+    return psp
+
+
+# TODO update docs
+class PerElementEmbedding(torch.nn.Module):
     """
     A per-species equivalent of `torch.nn.Embedding`.
 
     Parameters
     ----------
-    dim
-        The dimension of the embedding.
+    length
+        The length of each embedding vector.
 
     Examples
     --------
-    >>> embedding = PerSpeciesEmbedding(10)
-    >>> embedding(graph.Z)  # graph.Z is a tensor of atomic numbers
-    <tensor of shape (graph.n_atoms, 10)>
+    >>> embedding = PerElementEmbedding(10)
+    >>> len(graph["atomic_numbers"])  # number of atoms in the graph
+    24
+    >>> embedding(graph["atomic_numbers"])
+    <tensor of shape (24, 10)>
     """
 
-    def __init__(self, dim: int):
+    def __init__(self, length: int):
         super().__init__()
-        self._embeddings = PerSpeciesParameter.of_dim(dim)
+        self._embeddings = PerElementParameter.of_length(length)
 
     def forward(self, Z: Tensor) -> Tensor:
         return self._embeddings[Z]
 
     def __repr__(self) -> str:
-        return f"PerSpeciesEmbedding(dim={self._embeddings.shape[1]})"
+        return f"PerElementEmbedding(length={self._embeddings.shape[1]})"
 
 
 class HaddamardProduct(nn.Module):

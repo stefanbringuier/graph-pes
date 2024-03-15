@@ -11,7 +11,7 @@ from ..data import (
     number_of_atoms,
     number_of_edges,
 )
-from ..nn import MLP, HaddamardProduct, PerSpeciesEmbedding
+from ..nn import MLP, HaddamardProduct, PerElementEmbedding
 from .distances import CosineEnvelope, ExponentialRBF
 
 
@@ -72,7 +72,7 @@ class EdgeEmbedding(nn.Module):
         cutoff: float,
     ):
         super().__init__()
-        self.z_embedding = PerSpeciesEmbedding(embedding_size)
+        self.z_embedding = PerElementEmbedding(embedding_size)
         self.z_map = nn.Linear(2 * embedding_size, embedding_size, bias=False)
         self.distance_embedding = HaddamardProduct(
             nn.Sequential(

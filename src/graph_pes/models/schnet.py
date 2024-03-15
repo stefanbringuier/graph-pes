@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from graph_pes.core import GraphPESModel
 from graph_pes.data import AtomicGraph, neighbour_distances
-from graph_pes.nn import MLP, PerSpeciesEmbedding, ShiftedSoftplus
+from graph_pes.nn import MLP, PerElementEmbedding, ShiftedSoftplus
 from torch import Tensor, nn
 from torch_geometric.nn import MessagePassing
 
@@ -219,7 +219,7 @@ class SchNet(GraphPESModel):
         if expansion is None:
             expansion = GaussianSmearing
 
-        self.chemical_embedding = PerSpeciesEmbedding(node_features)
+        self.chemical_embedding = PerElementEmbedding(node_features)
 
         self.interactions = nn.ModuleList(
             SchNetInteraction(

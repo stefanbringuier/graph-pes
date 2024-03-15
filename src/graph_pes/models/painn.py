@@ -8,7 +8,7 @@ from graph_pes.data import (
     neighbour_vectors,
     number_of_atoms,
 )
-from graph_pes.nn import MLP, HaddamardProduct, PerSpeciesEmbedding
+from graph_pes.nn import MLP, HaddamardProduct, PerElementEmbedding
 from torch import Tensor, nn
 
 from .distances import Bessel, PolynomialEnvelope
@@ -202,7 +202,7 @@ class PaiNN(GraphPESModel):
         self.updates: list[Update] = nn.ModuleList(
             [Update(internal_dim) for _ in range(layers)]
         )  # type: ignore
-        self.z_embedding = PerSpeciesEmbedding(internal_dim)
+        self.z_embedding = PerElementEmbedding(internal_dim)
         self.read_out = MLP(
             [internal_dim, internal_dim, 1],
             activation=nn.SiLU(),

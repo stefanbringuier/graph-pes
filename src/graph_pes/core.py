@@ -15,6 +15,7 @@ from graph_pes.data import (
     sum_per_structure,
     to_batch,
 )
+from graph_pes.nn import PerElementParameter
 from graph_pes.transform import PerAtomStandardScaler, Transform
 from graph_pes.util import differentiate, require_grad
 
@@ -195,7 +196,16 @@ class GraphPESModel(nn.Module, ABC):
         if isinstance(graphs, Sequence):
             graphs = to_batch(graphs)
 
-        if self._extra_pre_fit(graphs):
+        stop_here = self._extra_pre_fit(graphs)
+
+        # register all per-element parameters
+        for param in self.parameters():
+            if isinstance(param, PerElementParameter):
+                param.register_elements(
+                    torch.unique(graphs[keys.ATOMIC_NUMBERS])
+                )
+
+        if stop_here:
             return
 
         if "energy" not in graphs:

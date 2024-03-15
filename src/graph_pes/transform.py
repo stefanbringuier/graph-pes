@@ -14,7 +14,7 @@ from graph_pes.data import (
     sum_per_structure,
 )
 from graph_pes.nn import (
-    PerSpeciesParameter,
+    PerElementParameter,
     left_aligned_add,
     left_aligned_div,
     left_aligned_mul,
@@ -218,8 +218,8 @@ class PerAtomShift(Transform):
 
     def __init__(self, trainable: bool = True):
         super().__init__(trainable=trainable)
-        self.shift = PerSpeciesParameter.of_dim(
-            1, requires_grad=trainable, generator=0
+        self.shift = PerElementParameter.of_length(
+            1, requires_grad=trainable, default_value=0
         )
         """The fitted, per-species shifts."""
 
@@ -353,8 +353,8 @@ class PerAtomScale(Transform):
 
     def __init__(self, trainable: bool = True):
         super().__init__(trainable=trainable)
-        self.scales = PerSpeciesParameter.of_dim(
-            dim=1, requires_grad=trainable, generator=1
+        self.scales = PerElementParameter.of_length(
+            1, requires_grad=trainable, default_value=1
         )
         """The fitted, per-species scales."""
 

@@ -3,35 +3,50 @@ from __future__ import annotations
 import torch
 from graph_pes.nn import (
     MLP,
-    PerSpeciesEmbedding,
-    PerSpeciesParameter,
+    PerElementEmbedding,
+    PerElementParameter,
 )
 from graph_pes.util import MAX_Z
 
 
-def test_per_species_parameter():
-    """Test the PerSpeciesParameter class."""
+def test_per_element_parameter(tmp_path):
+    pep = PerElementParameter.of_length(5)
+    assert pep._index_dims == 1
+    assert pep.data.shape == (MAX_Z, 5)
 
-    psp = PerSpeciesParameter.of_dim(5)
-    assert psp.data.shape == (MAX_Z, 5)
-
-    # nothing has been accessed yet, so there should be no
+    # no elements have been registered, so there should (appear to) be no
     # trainable parameters
-    assert psp.numel() == 0
+    assert pep.numel() == 0
 
-    # access the parameter for hydrogen
-    psp[1]
-    assert psp.numel() == 5
+    # register the parameter for use with hydrogen
+    pep.register_elements([1])
+    assert pep.numel() == 5
 
-    embedding = PerSpeciesEmbedding(10)
+    # test save and loading
+    torch.save(pep, tmp_path / "pep.pt")
+    pep_loaded = torch.load(tmp_path / "pep.pt")
+    assert pep_loaded.numel() == 5
+    assert pep.data.allclose(pep_loaded.data)
+    assert pep.requires_grad == pep_loaded.requires_grad
+    assert pep._accessed_Zs == pep_loaded._accessed_Zs
+    assert pep._index_dims == pep_loaded._index_dims
+
+    # test default value init
+    assert PerElementParameter.of_length(1, default_value=1.0).data.allclose(
+        torch.ones(MAX_Z)
+    )
+
+    # test shape api
+    pep = PerElementParameter.of_shape((5, 5), index_dims=2)
+    assert pep.data.shape == (MAX_Z, MAX_Z, 5, 5)
+
+
+def test_per_element_embedding():
+    embedding = PerElementEmbedding(10)
+    embedding._embeddings.register_elements([1, 2, 3, 4, 5])
     Z = torch.tensor([1, 2, 3, 4, 5])
     assert embedding(Z).shape == (5, 10)
     assert embedding.parameters().__next__().numel() == 50
-
-    # test default value init
-    assert PerSpeciesParameter.of_dim(1, generator=1.0).data.allclose(
-        torch.ones(MAX_Z)
-    )
 
 
 def test_mlp():
