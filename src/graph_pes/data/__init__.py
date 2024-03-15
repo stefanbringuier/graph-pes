@@ -4,6 +4,7 @@ import warnings
 from typing import (
     TYPE_CHECKING,
     Dict,
+    Iterable,
     Iterator,
     Mapping,
     Sequence,
@@ -285,7 +286,7 @@ def to_atomic_graph(
 
 
 def to_atomic_graphs(
-    structures: Sequence[ase.Atoms],
+    structures: Iterable[ase.Atoms],
     cutoff: float,
     property_mapping: dict[keys.LabelKey, str] | None = None,
 ) -> list[LabelledGraph]:

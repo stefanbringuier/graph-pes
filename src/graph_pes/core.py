@@ -183,7 +183,7 @@ class GraphPESModel(nn.Module, ABC):
         .. image:: /_static/lj-parity-relative.svg
             :align: center
         """
-        if self._has_been_pre_fit:
+        if self._has_been_pre_fit.item():
             warnings.warn(
                 "This model has already been pre-fitted. "
                 "Subsequent calls to pre_fit will be ignored.",

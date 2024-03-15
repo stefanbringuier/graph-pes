@@ -45,10 +45,9 @@ def train_model(
     # pytorch lightning
     **trainer_kwargs,
 ) -> T:
-    # sanity check, but also ensures things like per-atom parameters
-    # are registered
+    # sanity check
     try:
-        for graph in train_data:
+        for graph in train_data[:10]:
             model(graph)
     except Exception as e:
         raise ValueError("The model does not appear to work") from e

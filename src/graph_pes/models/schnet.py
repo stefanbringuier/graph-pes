@@ -211,7 +211,7 @@ class SchNet(GraphPESModel):
         node_features: int = 64,
         expansion_features: int = 50,
         cutoff: float = 5.0,
-        num_interactions: int = 3,
+        layers: int = 3,
         expansion: type[DistanceExpansion] | None = None,
     ):
         super().__init__()
@@ -225,7 +225,7 @@ class SchNet(GraphPESModel):
             SchNetInteraction(
                 node_features, expansion_features, cutoff, expansion
             )
-            for _ in range(num_interactions)
+            for _ in range(layers)
         )
 
         self.read_out = MLP(

@@ -428,6 +428,7 @@ class PerAtomScale(Transform):
         else:
             # TODO: this is very tricky + needs more work
             # for now, we just get a single scale for all species
+            # and assume that the central limit theorem applies
             scale = (x / structure_sizes(graphs) ** 0.5).std()
             self.scales[zs] = func(scale)
 
@@ -436,16 +437,16 @@ class PerAtomScale(Transform):
     def forward(self, x: Tensor, graph: AtomicGraph) -> Tensor:
         scales = self.scales[graph["atomic_numbers"]].squeeze()
         if not is_local_property(x, graph):
-            scales = sum_per_structure(scales, graph)
+            scales = sum_per_structure(scales**2, graph) ** 0.5
 
-        return left_aligned_div(x, scales**0.5)
+        return left_aligned_div(x, scales)
 
     def inverse(self, y: Tensor, graph: AtomicGraph) -> Tensor:
         scales = self.scales[graph["atomic_numbers"]].squeeze()
         if not is_local_property(y, graph):
-            scales = sum_per_structure(scales, graph)
+            scales = sum_per_structure(scales**2, graph) ** 0.5
 
-        return left_aligned_mul(y, scales**0.5)
+        return left_aligned_mul(y, scales)
 
     def __repr__(self):
         return self.scales.__repr__().replace(
@@ -458,7 +459,7 @@ def PerAtomStandardScaler(trainable: bool = True) -> Transform:
     A convenience function for a :class:`Chain` of :class:`PerAtomShift` and
     :class:`PerAtomScale` transforms.
     """
-    return Chain([PerAtomShift(trainable), PerAtomScale(trainable)])
+    return Chain([PerAtomScale(trainable), PerAtomShift(trainable)])
 
 
 class Scale(Transform):
