@@ -11,6 +11,7 @@ from graph_pes.data import (
     neighbour_distances,
     sum_over_neighbours,
 )
+from graph_pes.nn import PerElementParameter
 from graph_pes.transform import PerAtomShift
 from graph_pes.util import pytorch_repr, to_significant_figures
 from jaxtyping import Float
@@ -76,9 +77,7 @@ class PairPotential(GraphPESModel, ABC):
         Z_i = graph[keys.ATOMIC_NUMBERS][central_atoms]
         Z_j = graph[keys.ATOMIC_NUMBERS][neighbours]
 
-        V = self.interaction(
-            distances.view(-1, 1), Z_i.view(-1, 1), Z_j.view(-1, 1)
-        )  # (E, 1)
+        V = self.interaction(distances, Z_i, Z_j)  # (E) / (E, 1)
 
         # sum over the neighbours
         energies = sum_over_neighbours(V.squeeze(), graph)
@@ -254,3 +253,82 @@ class Morse(PairPotential):
                 "energy_transform": self.energy_transform,
             },
         )
+
+
+class LennardJonesMixture(PairPotential):
+    r"""
+    An extension of the simple :class:`LennardJones` potential to
+    account for multiple atomic species.
+
+    Each element is associated with a unique pair of parameters, $\sigma_i$ and
+    $\varepsilon_i$, which control the width and depth of the potential well
+    for that element.
+
+    Interactions between atoms of different elements are calculated using
+    effective parameters $\sigma_{i\neq j}$ and $\varepsilon_{i\neq j}$,
+    which are calculated as:
+
+    * :math:`\sigma_{i\neq j} = \nu_{ij} \cdot (\sigma_i + \sigma_j) / 2`
+    * :math:`\varepsilon_{i\neq j} = \zeta_{ij} \cdot \sqrt{\varepsilon_i
+      \cdot \varepsilon_j}`
+
+    where $\nu_{ij}$ is a mixing parameter that controls the width of the
+
+    For more details, see `wikipedia <https://en.wikipedia.org/wiki/Lennard-Jones_potential#Mixtures_of_Lennard-Jones_substances>`_.
+    """
+
+    def __init__(self, modulate_distances: bool = True):
+        super().__init__(energy_transform=PerAtomShift())
+        self.register_buffer(
+            "modulate_distances", torch.tensor(modulate_distances)
+        )
+        self._log_epsilon = PerElementParameter.of_length(1, default_value=-1)
+        self._log_sigma = PerElementParameter.covalent_radii(
+            scaling_factor=0.9, transform=torch.log
+        )
+        self._log_nu = PerElementParameter.of_length(
+            1, index_dims=2, default_value=0
+        )
+        self._log_zeta = PerElementParameter.of_length(
+            1, index_dims=2, default_value=0
+        )
+
+    def interaction(self, r: Tensor, Z_i: Tensor, Z_j: Tensor) -> Tensor:
+        """
+        Evaluate the pair potential.
+
+        Parameters
+        ----------
+        r : torch.Tensor
+            The pair-wise distances between the atoms.
+        Z_i : torch.Tensor
+            The atomic numbers of the central atoms.
+        Z_j : torch.Tensor
+            The atomic numbers of the neighbours.
+        """
+        cross_interaction = Z_i != Z_j
+
+        sigma_j = self._log_sigma[Z_j].squeeze().exp()
+        sigma_i = self._log_sigma[Z_i].squeeze().exp()
+        nu = (
+            self._log_nu[Z_i, Z_j].squeeze().exp()
+            if self.modulate_distances
+            else 1
+        )
+        sigma = torch.where(
+            cross_interaction,
+            nu * (sigma_i + sigma_j) / 2,
+            sigma_i,
+        )
+
+        epsilon_i = self._log_epsilon[Z_i].squeeze().exp()
+        epsilon_j = self._log_epsilon[Z_j].squeeze().exp()
+        zeta = self._log_zeta[Z_i, Z_j].squeeze().exp()
+        epsilon = torch.where(
+            cross_interaction,
+            zeta * (epsilon_i * epsilon_j).sqrt(),
+            epsilon_i,
+        )
+
+        x = sigma / r
+        return 4 * epsilon * (x**12 - x**6)

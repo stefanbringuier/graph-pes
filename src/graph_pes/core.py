@@ -202,7 +202,7 @@ class GraphPESModel(nn.Module, ABC):
         for param in self.parameters():
             if isinstance(param, PerElementParameter):
                 param.register_elements(
-                    torch.unique(graphs[keys.ATOMIC_NUMBERS])
+                    torch.unique(graphs[keys.ATOMIC_NUMBERS]).tolist()
                 )
 
         if stop_here:

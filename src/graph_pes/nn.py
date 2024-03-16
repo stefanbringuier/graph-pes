@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from functools import reduce
+from typing import Callable, Iterable
+
 import torch
 import torch.nn as nn
+from ase.data import covalent_radii
 from torch import Tensor
 
-from .util import MAX_Z, pairs
+from .util import MAX_Z, pairs, to_significant_figures
 
 
 class MLP(nn.Module):
@@ -123,31 +127,27 @@ def parse_activation(act: str) -> torch.nn.Module:
     return activation()
 
 
-class Product(nn.Module):
-    def __init__(self, components: list[nn.Module]):
-        super().__init__()
-        self.components = nn.ModuleList(components)
-
-    def forward(self, x):
-        out = 1
-        for component in self.components:
-            out = out * component(x)
-        return out
-
-
-from functools import reduce
-from typing import Iterable
-
-
 def prod(iterable):
     return reduce(lambda x, y: x * y, iterable, 1)
+
+
+# # Metaclass to combine _TensorMeta and the instance check override
+# # for PerElementParameter (see equivalent in torch.nn.Parameter)
+# class _PerElementParameterMeta(torch._C._TensorMeta):
+#     def __instancecheck__(self, instance):
+#         return super().__instancecheck__(instance) or (
+#             isinstance(instance, torch.Tensor)
+#             and getattr(instance, "_is_per_element_param", False)
+#         )
 
 
 class PerElementParameter(torch.nn.Parameter):
     def __new__(
         cls, data: Tensor, requires_grad: bool = True
     ) -> PerElementParameter:
-        return super().__new__(cls, data, requires_grad=requires_grad)  # type: ignore
+        pep = super().__new__(cls, data, requires_grad=requires_grad)
+        pep._is_per_element_param = True  # type: ignore[assignment]
+        return pep  # type: ignore[return-value]
 
     def __init__(self, data: Tensor, requires_grad: bool = True):
         super().__init__()
@@ -167,7 +167,7 @@ class PerElementParameter(torch.nn.Parameter):
         default_value: float | None = None,
         requires_grad: bool = True,
     ) -> PerElementParameter:
-        actual_shape = tuple([MAX_Z] * index_dims) + shape
+        actual_shape = tuple([MAX_Z + 1] * index_dims) + shape
         if default_value is not None:
             data = torch.full(actual_shape, float(default_value))
         else:
@@ -188,11 +188,26 @@ class PerElementParameter(torch.nn.Parameter):
             (length,), index_dims, default_value, requires_grad
         )
 
+    @classmethod
+    @torch.no_grad()
+    def covalent_radii(
+        cls,
+        scaling_factor: float = 1.0,
+        transform: Callable[[Tensor], Tensor] | None = None,
+    ) -> PerElementParameter:
+        pep = PerElementParameter.of_length(1, default_value=1.0)
+        for Z in range(1, MAX_Z + 1):
+            r = torch.tensor(covalent_radii[Z]) * scaling_factor
+            if transform is not None:
+                r = transform(r)
+            pep[Z] = r
+        return pep
+
     def numel(self) -> int:
         n_elements = len(self._accessed_Zs)
         accessed_parameters = n_elements**self._index_dims
-        parameter_length = prod(self.shape[self._index_dims :])
-        return accessed_parameters * parameter_length
+        per_element_size = prod(self.shape[self._index_dims :])
+        return accessed_parameters * per_element_size
 
     # needed for de/serialization
     def __reduce_ex__(self, proto):
@@ -201,6 +216,13 @@ class PerElementParameter(torch.nn.Parameter):
             (self.data, self.requires_grad, torch._utils._get_obj_state(self)),
         )
 
+    def __instancecheck__(self, instance) -> bool:
+        return super().__instancecheck__(instance) or (  # type: ignore[no-untyped-call]
+            isinstance(instance, torch.Tensor)
+            and getattr(instance, "_is_per_element_param", False)
+        )
+
+    @torch.no_grad()
     def __repr__(self) -> str:
         # TODO implement custom repr for different shapes
         # 1 index dimension:
@@ -208,8 +230,52 @@ class PerElementParameter(torch.nn.Parameter):
         # 2 index dimensions with singleton further shape:
         #      2D table with Z as both header row and header column
         # print numel otherwise
+        if len(self._accessed_Zs) == 0:
+            return (
+                f"PerElementParameter(index_dims={self._index_dims}, "
+                f"shape={tuple(self.shape[self._index_dims:])})"
+            )
+
+        if self._index_dims == 1:
+            if self.shape[1] == 1:
+                d = {
+                    Z: to_significant_figures(self[Z].item())
+                    for Z in self._accessed_Zs
+                }
+                return f"PerElementParameter({d})"
+            elif len(self.shape) == 2:
+                d = {Z: self[Z].tolist() for Z in self._accessed_Zs}
+                return f"PerElementParameter({d})"
+
+        if self._index_dims == 2 and self.shape[2] == 1:
+            columns = []
+            columns.append(["Z"] + [str(Z) for Z in self._accessed_Zs])
+            for col_Z in self._accessed_Zs:
+                row = [col_Z]
+                for row_Z in self._accessed_Zs:
+                    row.append(
+                        to_significant_figures(self[col_Z, row_Z].item())
+                    )
+                columns.append(row)
+
+            widths = [max(len(str(x)) for x in col) for col in zip(*columns)]
+            lines = []
+            for row in columns:
+                line = " "
+                for x, w in zip(row, widths):
+                    # right align
+                    line += f"{x:>{w}}  "
+                lines.append(line)
+            table = "\n".join(lines)
+            return f"PerElementParameter(\n{table}\n)"
+            # table = "\n".join(
+            #     " ".join(f"{x:{w}}" for x, w in zip(row, widths))
+            #     for row in columns
+            # )
+            # return f"PerElementParameter(\n{table}\n)"
+
         return (
-            f"PSP(index_dims={self._index_dims}, "
+            f"PerElementParameter(index_dims={self._index_dims}, "
             f"accessed_Zs={sorted(self._accessed_Zs)}, "
             f"shape={tuple(self.shape[self._index_dims:])})"
         )
