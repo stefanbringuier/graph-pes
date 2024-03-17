@@ -282,15 +282,13 @@ class LennardJonesMixture(PairPotential):
         self.register_buffer(
             "modulate_distances", torch.tensor(modulate_distances)
         )
-        self._log_epsilon = PerElementParameter.of_length(1, default_value=-1)
-        self._log_sigma = PerElementParameter.covalent_radii(
-            scaling_factor=0.9, transform=torch.log
+        self.epsilon = PerElementParameter.of_length(1, default_value=0.1)
+        self.sigma = PerElementParameter.covalent_radii(scaling_factor=0.9)
+        self.nu = PerElementParameter.of_length(
+            1, index_dims=2, default_value=1
         )
-        self._log_nu = PerElementParameter.of_length(
-            1, index_dims=2, default_value=0
-        )
-        self._log_zeta = PerElementParameter.of_length(
-            1, index_dims=2, default_value=0
+        self.zeta = PerElementParameter.of_length(
+            1, index_dims=2, default_value=1
         )
 
     def interaction(self, r: Tensor, Z_i: Tensor, Z_j: Tensor) -> Tensor:
@@ -308,27 +306,35 @@ class LennardJonesMixture(PairPotential):
         """
         cross_interaction = Z_i != Z_j
 
-        sigma_j = self._log_sigma[Z_j].squeeze().exp()
-        sigma_i = self._log_sigma[Z_i].squeeze().exp()
-        nu = (
-            self._log_nu[Z_i, Z_j].squeeze().exp()
-            if self.modulate_distances
-            else 1
-        )
+        sigma_j = self.sigma[Z_j].squeeze()
+        sigma_i = self.sigma[Z_i].squeeze()
+        nu = self.nu[Z_i, Z_j].squeeze() if self.modulate_distances else 1
         sigma = torch.where(
             cross_interaction,
             nu * (sigma_i + sigma_j) / 2,
             sigma_i,
-        )
+        ).clamp(min=0.2)
 
-        epsilon_i = self._log_epsilon[Z_i].squeeze().exp()
-        epsilon_j = self._log_epsilon[Z_j].squeeze().exp()
-        zeta = self._log_zeta[Z_i, Z_j].squeeze().exp()
+        epsilon_i = self.epsilon[Z_i].squeeze()
+        epsilon_j = self.epsilon[Z_j].squeeze()
+        zeta = self.zeta[Z_i, Z_j].squeeze()
         epsilon = torch.where(
             cross_interaction,
             zeta * (epsilon_i * epsilon_j).sqrt(),
             epsilon_i,
-        )
+        ).clamp(min=0.00)
 
         x = sigma / r
         return 4 * epsilon * (x**12 - x**6)
+
+    def __repr__(self):
+        modules = {
+            "energy_transform": self.energy_transform,
+            "sigma": self.sigma,
+            "epsilon": self.epsilon,
+            "zeta": self.zeta,
+        }
+        if self.modulate_distances:
+            modules["nu"] = self.nu
+
+        return pytorch_repr("LennardJonesMixture", _modules=modules)

@@ -318,9 +318,7 @@ class PerAtomShift(Transform):
         return left_aligned_add(y, shifts)
 
     def __repr__(self):
-        return self.shift.__repr__().replace(
-            self.shift.__class__.__name__, self.__class__.__name__
-        )
+        return f"PerAtomShift({self.shift})"
 
 
 class PerAtomScale(Transform):
@@ -449,9 +447,7 @@ class PerAtomScale(Transform):
         return left_aligned_mul(y, scales)
 
     def __repr__(self):
-        return self.scales.__repr__().replace(
-            self.scales.__class__.__name__, self.__class__.__name__
-        )
+        return f"PerAtomScale({self.scales})"
 
 
 def PerAtomStandardScaler(trainable: bool = True) -> Transform:

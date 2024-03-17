@@ -27,7 +27,7 @@ from .data import (
     to_batch,
 )
 from .loss import RMSE, Loss, WeightedLoss
-from .transform import PerAtomScale, PerAtomStandardScaler, Scale
+from .transform import DividePerAtom, PerAtomScale, PerAtomStandardScaler, Scale
 
 T = TypeVar("T", bound=GraphPESModel)
 
@@ -134,6 +134,7 @@ class LearnThePES(pl.LightningModule):
         model: GraphPESModel,
         optimizer: torch.optim.Optimizer | OptimizerLRSchedulerConfig,
         total_loss: WeightedLoss,
+        validation_metrics: dict[str, Loss] | None = None,
     ):
         super().__init__()
         self.model = model
@@ -143,6 +144,26 @@ class LearnThePES(pl.LightningModule):
             component.property_key for component in total_loss.losses
         ]
 
+        if validation_metrics is None:
+            validation_metrics = {}
+            if keys.ENERGY in self.properties:
+                validation_metrics["per_energy_rmse"] = Loss(
+                    "energy", RMSE(), DividePerAtom()
+                )
+            if keys.FORCES in self.properties:
+                validation_metrics["force_rmse"] = Loss(
+                    "forces", RMSE(), PerAtomScale()
+                )
+
+            # don't double log the force RMSE if its already in the total loss
+            for loss in total_loss.losses:
+                if loss.property_key == "forces" and isinstance(
+                    loss.metric, RMSE
+                ):
+                    validation_metrics.pop("force_rmse")
+
+        self.validation_metrics = validation_metrics
+
     def forward(self, graphs: AtomicGraphBatch) -> torch.Tensor:
         return self.model(graphs)
 
@@ -151,20 +172,17 @@ class LearnThePES(pl.LightningModule):
         Get (and log) the losses for a training/validation step.
         """
 
-        def log(name, value, verbose=True):
+        def log(name, value):
             return self.log(
                 f"{prefix}_{name}",
                 value,
-                prog_bar=verbose and prefix == "val",
+                prog_bar=prefix == "val",
                 on_step=False,
                 on_epoch=True,
                 batch_size=number_of_structures(graph),
             )
 
         # generate prediction:
-        # predictions = self.model(
-        #     graph, properties=self.properties, training=True
-        # )
         predictions = get_predictions(
             self.model, graph, properties=self.properties, training=True
         )
@@ -181,10 +199,12 @@ class LearnThePES(pl.LightningModule):
             # but weight them when computing the total loss
             total_loss = total_loss + weight * value
 
-            # log the raw values only during validation
-            if prefix == "val":
-                raw_value = loss.raw(predictions, graph)
-                log(f"{loss.property_key}_raw_{loss.name}", raw_value)
+        # log additional values during validation
+        if prefix == "val":
+            with torch.no_grad():
+                for name, loss in self.validation_metrics.items():
+                    value = loss(predictions, graph)
+                    log(name, value)
 
         log("total_loss", total_loss)
         return total_loss
@@ -295,13 +315,36 @@ logging.getLogger("pytorch_lightning.utilities.rank_zero").addFilter(
 
 
 def Adam(
-    lr: float = 3e-4, weight_decay: float = 0.0
+    lr: float = 3e-4,
+    weight_decay: float = 0.0,
+    energy_transform_overrides: dict | None = None,
 ) -> Callable[[GraphPESModel], torch.optim.Optimizer]:
-    return lambda model: torch.optim.Adam(
-        model.parameters(),
-        lr=lr,
-        weight_decay=weight_decay,
-    )
+    if energy_transform_overrides is None:
+        energy_transform_overrides = {"weight": 1.0}
+
+    def adam(model: GraphPESModel) -> torch.optim.Optimizer:
+        model_params = [
+            param
+            for param in model.parameters()
+            if not any(param is t for t in model.energy_transform.parameters())
+        ]
+        transform_params = model.energy_transform.parameters()
+
+        param_groups = [
+            {"name": "model", "params": model_params},
+            {
+                "name": "energy_transform",
+                "params": transform_params,
+                **energy_transform_overrides,
+            },
+        ]
+        return torch.optim.Adam(
+            param_groups,
+            lr=lr,
+            weight_decay=weight_decay,
+        )
+
+    return adam
 
 
 def SGD(

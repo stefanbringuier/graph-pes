@@ -91,27 +91,6 @@ class Loss(nn.Module):
             self.transform(graphs[self.property_key], graphs),
         )
 
-    def raw(
-        self,
-        predictions: dict[keys.LabelKey, torch.Tensor],
-        graphs: LabelledBatch,
-    ) -> torch.Tensor:
-        """
-        Compute the metric as applied directly to the predictions and labels.
-
-        Parameters
-        ----------
-        predictions
-            The predictions from the model.
-        graphs
-            The graphs containing the labels.
-        """
-
-        return self.metric(
-            predictions[self.property_key],
-            graphs[self.property_key],
-        )
-
     def fit_transform(self, graphs: LabelledBatch):
         """
         Fit the transform to the target labels.

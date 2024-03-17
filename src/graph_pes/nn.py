@@ -242,10 +242,10 @@ class PerElementParameter(torch.nn.Parameter):
                     Z: to_significant_figures(self[Z].item())
                     for Z in self._accessed_Zs
                 }
-                return f"PerElementParameter({d})"
+                return str(d)
             elif len(self.shape) == 2:
                 d = {Z: self[Z].tolist() for Z in self._accessed_Zs}
-                return f"PerElementParameter({d})"
+                return str(d)
 
         if self._index_dims == 2 and self.shape[2] == 1:
             columns = []
@@ -261,18 +261,13 @@ class PerElementParameter(torch.nn.Parameter):
             widths = [max(len(str(x)) for x in col) for col in zip(*columns)]
             lines = []
             for row in columns:
-                line = " "
+                line = ""
                 for x, w in zip(row, widths):
                     # right align
                     line += f"{x:>{w}}  "
                 lines.append(line)
-            table = "\n".join(lines)
-            return f"PerElementParameter(\n{table}\n)"
-            # table = "\n".join(
-            #     " ".join(f"{x:{w}}" for x, w in zip(row, widths))
-            #     for row in columns
-            # )
-            # return f"PerElementParameter(\n{table}\n)"
+            table = "\n" + "\n".join(lines)
+            return str(table)
 
         return (
             f"PerElementParameter(index_dims={self._index_dims}, "

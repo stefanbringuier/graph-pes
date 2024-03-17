@@ -12,7 +12,7 @@ from graph_pes.util import MAX_Z
 def test_per_element_parameter(tmp_path):
     pep = PerElementParameter.of_length(5)
     assert pep._index_dims == 1
-    assert pep.data.shape == (MAX_Z, 5)
+    assert pep.data.shape == (MAX_Z + 1, 5)
 
     # no elements have been registered, so there should (appear to) be no
     # trainable parameters
@@ -33,12 +33,12 @@ def test_per_element_parameter(tmp_path):
 
     # test default value init
     assert PerElementParameter.of_length(1, default_value=1.0).data.allclose(
-        torch.ones(MAX_Z)
+        torch.ones(MAX_Z + 1)
     )
 
     # test shape api
     pep = PerElementParameter.of_shape((5, 5), index_dims=2)
-    assert pep.data.shape == (MAX_Z, MAX_Z, 5, 5)
+    assert pep.data.shape == (MAX_Z + 1, MAX_Z + 1, 5, 5)
 
 
 def test_per_element_embedding():
