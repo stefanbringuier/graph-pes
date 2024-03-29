@@ -78,7 +78,7 @@ class AtomicGraph(TypedDict):
 class AtomicGraphBatch(AtomicGraph):
     """
     We represent a batch of atomic graphs as a single larger graph containing
-    disjoint subgraphs corresponding to each structure. l
+    disjoint subgraphs corresponding to each structure.
 
     Together with all the properties defined on :class:`AtomicGraph`,
     an :class:`AtomicGraphBatch` containing ``S`` structures and a total

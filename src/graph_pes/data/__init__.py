@@ -38,7 +38,30 @@ __all__ = [
     "random_split",
     "to_atomic_graph",
     "to_atomic_graphs",
+    "keys",
 ]
+
+# Torchscript compilation is used in graph_pes to serialise models for
+# deployment in e.g. LAMMPs, and also sometimes as a means to accelerate
+# training.
+#
+# When such compilation takes place, Torchscript uses the run-time type
+# hint information to determine the form of the data structures and
+# required functions that act on these.
+#
+# Unfortunately, Torchscript does not support:
+# - TypedDicts
+# - Literal types
+# and so we resort below to defining the AtomicGraph (and other derived) types
+# as TypedDicts when type checking is enabled (i.e. when we write code in
+# an IDE), and as vanilla dictionaries types at run time.
+#
+# Further to this, in order to enable nicer printing of the AtomicGraph
+# objects, we actually subclass the dictionary type and override the __repr__
+# method. It is important to realise that this (and any other custom
+# behaviour implemented on the AtomicGraph_Impl class) will not be available
+# when the AtomicGraph is compiled to Torchscript and used in e.g. LAMMPs.
+# Hence we don't put any logic on this AtomicGraph_Impl class.
 
 
 if TYPE_CHECKING or _is_being_documented():
@@ -50,19 +73,19 @@ if TYPE_CHECKING or _is_being_documented():
     LabelledBatch: TypeAlias = LabelledBatchType
 else:
     # at runtime, we want @torch.jit.script to work, and this requires
-    # the key type to be a string, not Literal from TypedDict
+    # vanilla dictionaries with no pre-defined keys
     AtomicGraph: TypeAlias = Dict[str, torch.Tensor]
     LabelledGraph: TypeAlias = Dict[str, torch.Tensor]
     AtomicGraphBatch: TypeAlias = Dict[str, torch.Tensor]
     LabelledBatch: TypeAlias = Dict[str, torch.Tensor]
 
 
-class AtomicGraph_Impl(dict):
+class _AtomicGraph_Impl(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     # throughout, we are using self, which does not strictly adhere to the
-    # AtomicGraph type due to torchscript limitations.
+    # AtomicGraph type due to torchscript limitations, hence the no_type_check
     @no_type_check
     def __repr__(self):
         info = {}
@@ -201,29 +224,6 @@ def neighbour_distances(graph: AtomicGraph) -> Tensor:
     return torch.linalg.norm(neighbour_vectors(graph), dim=-1)
 
 
-# TODO: test if we need this caching behaviour for speed up?
-# if so, add reset_graph argument to prediction functions
-# (to handle ensemble predictions)?? might not be necessary since we aren't
-# deleting tensors, just dropping them from a dict, and so gc won't remove
-# if still part of computation graph
-
-# def prepare_for_forward_pass(graph: AtomicGraph) -> AtomicGraph:
-#     # remove everything with starting with "__cache"
-#     return {k: v for k, v in graph.items() if not k.startswith("__cache")}
-
-
-# def _property_name(name: str) -> str:
-#     return f"__cache_{name}"
-
-
-# def add_property(x: Tensor, name: str, graph: AtomicGraph):
-#     graph[_property_name(name)] = x
-
-
-# def get_property(name: str, graph: AtomicGraph) -> Tensor:
-#     return graph[_property_name(name)]
-
-
 def to_atomic_graph(
     structure: ase.Atoms,
     cutoff: float,
@@ -254,7 +254,7 @@ def to_atomic_graph(
 
     i, j, offsets = neighbor_list("ijS", structure, cutoff)
 
-    graph = AtomicGraph_Impl(
+    graph = _AtomicGraph_Impl(
         {
             keys.ATOMIC_NUMBERS: torch.LongTensor(structure.numbers),
             keys.CELL: torch.FloatTensor(structure.cell.array),
@@ -309,22 +309,22 @@ def to_atomic_graphs(
 
 def sum_over_neighbours(p: Tensor, graph: AtomicGraph) -> Tensor:
     r"""
-    Shape-preserving sum over neighbours of a per-edge property, :math:`A_{ij}`,
-    to get a per-atom property, :math:`B_i`:
+    Shape-preserving sum over neighbours of a per-edge property, :math:`p_{ij}`,
+    to get a per-atom property, :math:`P_i`:
 
     .. math::
-        B_i = \sum_{j \in \mathcal{N}_i} A_{ij}
+        P_i = \sum_{j \in \mathcal{N}_i} p_{ij}
 
     where:
 
     * :math:`\mathcal{N}_i` is the set of neighbours of atom :math:`i`.
-    * :math:`A_{ij}` is the property of the edge between atoms :math:`i` and
+    * :math:`p_{ij}` is the property of the edge between atoms :math:`i` and
       :math:`j`.
-    * :math:`A` is of shape :code:`(E, ...)` and :math:`B` is of shape
+    * :math:`p` is of shape :code:`(E, ...)` and :math:`P` is of shape
       :code:`(N, ...)` where :math:`E` is the number of edges and :math:`N` is
       the number of atoms. :code:`...` denotes any number of additional
       dimensions, including none.
-    * :math:`B_i` = 0 if :math:`|\mathcal{N}_i| = 0`.
+    * :math:`P_i` = 0 if :math:`|\mathcal{N}_i| = 0`.
 
     Parameters
     ----------
@@ -333,6 +333,7 @@ def sum_over_neighbours(p: Tensor, graph: AtomicGraph) -> Tensor:
     graph
         The graph to sum the property for.
     """
+    # TODO: double check that torch scatter add doesn't work here
     N = number_of_atoms(graph)
     central_atoms = graph[keys.NEIGHBOUR_INDEX][0]  # shape: (E,)
 
@@ -407,7 +408,7 @@ def to_batch(
         [g[keys.NEIGHBOUR_INDEX] + ptr[i] for i, g in enumerate(graphs)], dim=1
     )
 
-    graph = AtomicGraph_Impl(
+    graph = _AtomicGraph_Impl(
         {
             keys.ATOMIC_NUMBERS: Z,
             keys._POSITIONS: positions,

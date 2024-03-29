@@ -10,6 +10,8 @@ from torch import Tensor, nn
 from graph_pes.data import (
     AtomicGraph,
     AtomicGraphBatch,
+    LabelledBatch,
+    LabelledGraph,
     has_cell,
     keys,
     sum_per_structure,
@@ -100,7 +102,7 @@ class GraphPESModel(nn.Module, ABC):
 
     def pre_fit(
         self,
-        graphs: AtomicGraphBatch | Sequence[AtomicGraph],
+        graphs: LabelledBatch | Sequence[LabelledGraph],
         relative: bool = True,
     ):
         """
@@ -223,7 +225,7 @@ class GraphPESModel(nn.Module, ABC):
 
         self.energy_transform.fit_to_target(target, graphs)
 
-    def _extra_pre_fit(self, graphs: AtomicGraphBatch) -> bool | None:
+    def _extra_pre_fit(self, graphs: LabelledBatch) -> bool | None:
         """
         Override this method to perform additional pre-fitting steps.
         Return ``True`` to surpress the default pre-fitting of the energy

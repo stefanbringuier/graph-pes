@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
 import pytest
 import torch
@@ -76,18 +78,28 @@ def test_get_labels():
         graph["missing"]  # type: ignore
 
 
-# in each of these structures, each atom has the same number of neighbours,
+# Within each of these structures, each atom has the same number of neighbours,
 # making it easy to test that the sum over neighbours is correct
 @pytest.mark.parametrize("structure", [ISOLATED_ATOM, DIMER, PERIODIC_ATOM])
 def test_sum_over_neighbours(structure):
     graph = to_atomic_graph(structure, cutoff=1.1)
     N = number_of_atoms(graph)
     E = number_of_edges(graph)
-
     n_neighbours = (graph["neighbour_index"][0] == 0).sum()
 
+    # check that summing is
+    # (a) shape preserving
+    # (b) compatible with torch.jit.script
+
+    torchscript_sum: Callable[[torch.Tensor, AtomicGraph], torch.Tensor] = (
+        torch.jit.script(sum_over_neighbours)  # type: ignore
+    )
     for shape in [(E,), (E, 2), (E, 2, 3), (E, 2, 2, 2)]:
-        edge_property = torch.ones(shape)
-        result = sum_over_neighbours(edge_property, graph)
-        assert result.shape == (N, *shape[1:])
-        assert (result == n_neighbours).all()
+        for summing_fn in (
+            sum_over_neighbours,
+            torchscript_sum,
+        ):
+            edge_property = torch.ones(shape)
+            result = summing_fn(edge_property, graph)
+            assert result.shape == (N, *shape[1:])
+            assert (result == n_neighbours).all()
