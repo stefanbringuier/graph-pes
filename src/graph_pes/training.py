@@ -320,7 +320,7 @@ def Adam(
     energy_transform_overrides: dict | None = None,
 ) -> Callable[[GraphPESModel], torch.optim.Optimizer]:
     if energy_transform_overrides is None:
-        energy_transform_overrides = {"weight": 1.0}
+        energy_transform_overrides = {"weight_decay": 0.0}
 
     def adam(model: GraphPESModel) -> torch.optim.Optimizer:
         model_params = [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+from graph_pes.transform import Transform
 from torch import Tensor, nn
 
 from ..core import GraphPESModel
@@ -320,8 +321,9 @@ class TensorNet(GraphPESModel):
         embedding_size: int = 32,
         cutoff: float = 5.0,
         layers: int = 1,
+        energy_transform: Transform | None = None,
     ):
-        super().__init__()
+        super().__init__(energy_transform)
         self.embedding = Embedding(radial_features, embedding_size, cutoff)
         self.interactions: list[Interaction] = nn.ModuleList(
             [

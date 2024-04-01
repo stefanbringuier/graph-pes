@@ -9,6 +9,7 @@ from graph_pes.data import (
     number_of_atoms,
 )
 from graph_pes.nn import MLP, HaddamardProduct, PerElementEmbedding
+from graph_pes.transform import Transform
 from torch import Tensor, nn
 
 from .distances import Bessel, PolynomialEnvelope
@@ -181,6 +182,8 @@ class PaiNN(GraphPESModel):
         The number of (interaction + update) layers to use.
     cutoff
         The cutoff distance for the radial features.
+    energy_transform
+        The energy transform to use (defaults to PerAtomStandardScaler)
     """  # noqa: E501
 
     def __init__(
@@ -189,8 +192,9 @@ class PaiNN(GraphPESModel):
         radial_features: int = 20,
         layers: int = 3,
         cutoff: float = 5.0,
+        energy_transform: Transform | None = None,
     ):
-        super().__init__()
+        super().__init__(energy_transform)
         self.internal_dim = internal_dim
         self.layers = layers
         self.interactions: list[Interaction] = nn.ModuleList(

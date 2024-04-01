@@ -4,6 +4,7 @@ import torch
 from graph_pes.core import GraphPESModel
 from graph_pes.data import AtomicGraph, neighbour_distances
 from graph_pes.nn import MLP, PerElementEmbedding, ShiftedSoftplus
+from graph_pes.transform import Transform
 from torch import Tensor, nn
 from torch_geometric.nn import MessagePassing
 
@@ -213,8 +214,9 @@ class SchNet(GraphPESModel):
         cutoff: float = 5.0,
         layers: int = 3,
         expansion: type[DistanceExpansion] | None = None,
+        energy_transform: Transform | None = None,
     ):
-        super().__init__()
+        super().__init__(energy_transform)
 
         if expansion is None:
             expansion = GaussianSmearing

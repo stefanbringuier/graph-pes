@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import torch
+from ase.data import atomic_numbers as symbol_to_Z
 from torch import Tensor, nn
 
 from graph_pes.data import (
@@ -318,7 +319,7 @@ class PerAtomShift(Transform):
         return left_aligned_add(y, shifts)
 
     def __repr__(self):
-        return f"PerAtomShift({self.shift})"
+        return f"{self.__class__.__name__}({self.shift})"
 
 
 class PerAtomScale(Transform):
@@ -456,6 +457,34 @@ def PerAtomStandardScaler(trainable: bool = True) -> Transform:
     :class:`PerAtomScale` transforms.
     """
     return Chain([PerAtomScale(trainable), PerAtomShift(trainable)])
+
+
+class FixedEnergyOffsets(PerAtomShift):
+    r"""
+    A convenience function for a :class:`PerAtomShift` transform with fixed
+    species-dependent shifts.
+
+    Parameters
+    ----------
+    offsets
+        The fixed shifts to apply to each species.
+
+    Examples
+    --------
+    >>> FixedEnergyOffsets(H=-0.1, Pt=-13.14)
+    """
+
+    def __init__(self, **offsets: float):
+        super().__init__(trainable=False)
+        for symbol, offset in offsets.items():
+            assert symbol in symbol_to_Z, f"Unknown element: {symbol}"
+            self.shift[symbol_to_Z[symbol]] = offset
+
+    def fit_to_source(self, x: Tensor, graphs: AtomicGraphBatch):
+        pass
+
+    def fit_to_target(self, y: Tensor, graphs: AtomicGraphBatch):
+        pass
 
 
 class Scale(Transform):

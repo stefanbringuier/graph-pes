@@ -131,16 +131,6 @@ def prod(iterable):
     return reduce(lambda x, y: x * y, iterable, 1)
 
 
-# # Metaclass to combine _TensorMeta and the instance check override
-# # for PerElementParameter (see equivalent in torch.nn.Parameter)
-# class _PerElementParameterMeta(torch._C._TensorMeta):
-#     def __instancecheck__(self, instance):
-#         return super().__instancecheck__(instance) or (
-#             isinstance(instance, torch.Tensor)
-#             and getattr(instance, "_is_per_element_param", False)
-#         )
-
-
 class PerElementParameter(torch.nn.Parameter):
     def __new__(
         cls, data: Tensor, requires_grad: bool = True
@@ -224,12 +214,6 @@ class PerElementParameter(torch.nn.Parameter):
 
     @torch.no_grad()
     def __repr__(self) -> str:
-        # TODO implement custom repr for different shapes
-        # 1 index dimension:
-        #     table with header column for Z
-        # 2 index dimensions with singleton further shape:
-        #      2D table with Z as both header row and header column
-        # print numel otherwise
         if len(self._accessed_Zs) == 0:
             return (
                 f"PerElementParameter(index_dims={self._index_dims}, "

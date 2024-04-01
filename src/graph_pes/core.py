@@ -53,6 +53,20 @@ class GraphPESModel(nn.Module, ABC):
         per-species scale and shift.
     """
 
+    def __init__(self, energy_transform: Transform | None = None):
+        super().__init__()
+
+        self.energy_transform: Transform = (
+            PerAtomStandardScaler()
+            if energy_transform is None
+            else energy_transform
+        )
+
+        # save as a buffer so that this is saved and loaded
+        # with the model
+        self._has_been_pre_fit: Tensor
+        self.register_buffer("_has_been_pre_fit", torch.tensor(False))
+
     def forward(self, graph: AtomicGraph) -> Tensor:
         """
         Calculate the total energy of the structure.
@@ -88,17 +102,6 @@ class GraphPESModel(nn.Module, ABC):
         Tensor
             The per-atom local energy predictions with shape :code:`(N,)`.
         """
-
-    def __init__(self, energy_transform: Transform | None = None):
-        super().__init__()
-        self.energy_transform: Transform = (
-            PerAtomStandardScaler()
-            if energy_transform is None
-            else energy_transform
-        )
-
-        self._has_been_pre_fit: Tensor
-        self.register_buffer("_has_been_pre_fit", torch.tensor(False))
 
     def pre_fit(
         self,

@@ -12,7 +12,7 @@ from graph_pes.data import (
     sum_over_neighbours,
 )
 from graph_pes.nn import PerElementParameter
-from graph_pes.transform import PerAtomShift
+from graph_pes.transform import PerAtomShift, Transform
 from graph_pes.util import pytorch_repr, to_significant_figures
 from jaxtyping import Float
 from torch import Tensor
@@ -119,9 +119,16 @@ class LennardJones(PairPotential):
         :align: center
     """
 
-    def __init__(self, epsilon: float = 0.1, sigma: float = 1.0):
+    def __init__(
+        self,
+        epsilon: float = 0.1,
+        sigma: float = 1.0,
+        energy_transform: Transform | None = None,
+    ):
         # epsilon is a scaling term, so only need to learn a shift
-        super().__init__(energy_transform=PerAtomShift())
+        if energy_transform is None:
+            energy_transform = PerAtomShift()
+        super().__init__(energy_transform)
 
         self._log_epsilon = torch.nn.Parameter(torch.tensor(epsilon).log())
         self._log_sigma = torch.nn.Parameter(torch.tensor(sigma).log())
@@ -199,10 +206,17 @@ class Morse(PairPotential):
         :align: center
     """
 
-    def __init__(self, D: float = 0.1, a: float = 5.0, r0: float = 1.5):
+    def __init__(
+        self,
+        D: float = 0.1,
+        a: float = 5.0,
+        r0: float = 1.5,
+        energy_transform: Transform | None = None,
+    ):
         # D is a scaling term, so only need to learn a shift
-        # parameter (rather than a shift and scale)
-        super().__init__(energy_transform=PerAtomShift())
+        if energy_transform is None:
+            energy_transform = PerAtomShift()
+        super().__init__(energy_transform)
 
         self._log_D = torch.nn.Parameter(torch.tensor(D).log())
         self._log_a = torch.nn.Parameter(torch.tensor(a).log())
@@ -220,9 +234,7 @@ class Morse(PairPotential):
     def r0(self):
         return self._log_r0.exp()
 
-    def interaction(
-        self, r: torch.Tensor, Z_i: torch.Tensor, Z_j: torch.Tensor
-    ):
+    def interaction(self, r: torch.Tensor, Z_i=None, Z_j=None):
         """
         Evaluate the pair potential.
 
@@ -304,16 +316,16 @@ class LennardJonesMixture(PairPotential):
         Z_j : torch.Tensor
             The atomic numbers of the neighbours.
         """
-        cross_interaction = Z_i != Z_j
+        cross_interaction = Z_i != Z_j  # (E)
 
-        sigma_j = self.sigma[Z_j].squeeze()
-        sigma_i = self.sigma[Z_i].squeeze()
+        sigma_j = self.sigma[Z_j].squeeze()  # (E)
+        sigma_i = self.sigma[Z_i].squeeze()  # (E)
         nu = self.nu[Z_i, Z_j].squeeze() if self.modulate_distances else 1
         sigma = torch.where(
             cross_interaction,
             nu * (sigma_i + sigma_j) / 2,
             sigma_i,
-        ).clamp(min=0.2)
+        ).clamp(min=0.2)  # (E)
 
         epsilon_i = self.epsilon[Z_i].squeeze()
         epsilon_j = self.epsilon[Z_j].squeeze()
@@ -322,7 +334,7 @@ class LennardJonesMixture(PairPotential):
             cross_interaction,
             zeta * (epsilon_i * epsilon_j).sqrt(),
             epsilon_i,
-        ).clamp(min=0.00)
+        ).clamp(min=0.00)  # (E)
 
         x = sigma / r
         return 4 * epsilon * (x**12 - x**6)
