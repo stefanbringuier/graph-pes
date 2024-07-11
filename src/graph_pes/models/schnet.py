@@ -8,7 +8,7 @@ from graph_pes.graphs.operations import (
     split_over_neighbours,
     sum_over_neighbours,
 )
-from graph_pes.models.scaling import UnScaledPESModel
+from graph_pes.models.scaling import AutoScaledPESModel
 from graph_pes.nn import MLP, PerElementEmbedding, ShiftedSoftplus
 
 from .distances import DistanceExpansion, GaussianSmearing
@@ -149,7 +149,7 @@ class SchNetInteraction(torch.nn.Module):
         return self.mlp(h)
 
 
-class SchNet(UnScaledPESModel):
+class SchNet(AutoScaledPESModel):
     r"""
     The `SchNet <https://arxiv.org/abs/1706.08566>`_ model: a pairwise, scalar,
     message passing GNN.
