@@ -1,5 +1,8 @@
-from contextlib import contextmanager
+from __future__ import annotations
 
+from pathlib import Path
+
+import e3nn
 import torch
 
 from graph_pes.core import GraphPESModel
@@ -60,7 +63,7 @@ class LAMMPSModel(torch.nn.Module):
         graph[keys._POSITIONS].requires_grad_(True)
         change_to_cell.requires_grad_(True)
 
-        local_energies = self.model.predict_local_energies(graph)
+        local_energies = self.model.predict_local_energies(graph).squeeze()
         props["local_energies"] = local_energies
         total_energy = torch.sum(local_energies)
         props["total_energy"] = total_energy
@@ -76,3 +79,12 @@ class LAMMPSModel(torch.nn.Module):
         for key in props:
             props[key] = props[key].double()
         return props
+
+    def __call__(self, graph: AtomicGraph) -> dict[str, torch.Tensor]:
+        return super().__call__(graph)
+
+
+def deploy_model(model: GraphPESModel, cutoff: float, path: str | Path):
+    lammps_model = LAMMPSModel(model, cutoff)
+    scripted_model = e3nn.util.jit.script(lammps_model)
+    torch.jit.save(scripted_model, path)
