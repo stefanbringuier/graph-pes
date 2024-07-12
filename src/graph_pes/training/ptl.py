@@ -9,7 +9,8 @@ import pytorch_lightning.loggers
 import torch
 from graph_pes.config import FittingOptions
 from graph_pes.core import GraphPESModel, get_predictions
-from graph_pes.data.module import GraphDataModule
+from graph_pes.data.dataset import FittingData
+from graph_pes.data.loader import GraphDataLoader
 from graph_pes.graphs import AtomicGraphBatch, LabelledBatch, keys
 from graph_pes.graphs.operations import number_of_structures
 from graph_pes.logger import logger
@@ -27,54 +28,57 @@ from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 
 def train_with_lightning(
     model: GraphPESModel,
-    data: GraphDataModule,
+    data: FittingData,
     loss: TotalLoss,
     fit_config: FittingOptions,
     optimizer: Optimizer,
     scheduler: LRScheduler | None = None,
-    # fitting_options: FittingOptions,
     config_to_log: dict | None = None,
 ) -> pl.Trainer:
     """Hand off to Lightning."""
 
-    # - check that we can actually do this
-    if not data.has_stage("train") or not data.has_stage("val"):
-        raise ValueError(
-            "The data module must be able to provide training and validation "
-            "data."
-        )
-
     # - create the trainer
-    trainer = create_training_trainer(fit_config, True)
+    trainer = create_trainer(fit_config, True)
     if config_to_log is not None and trainer.logger is not None:
         trainer.logger.log_hyperparams(config_to_log)
 
     # - get the data ready in a way that is compatible with
     #   multi-GPU training
     if trainer.local_rank == 0:
-        data.prepare_data()
-    trainer.strategy.barrier("data ready")
+        logger.info("Preparing data")
+        data.train.prepare_data()
+        data.valid.prepare_data()
+    trainer.strategy.barrier("data prepare")
+
+    logger.info("Setting up datasets")
+    data.train.setup()
+    data.valid.setup()
+
+    loader_kwargs = {**fit_config.loader_kwargs}
+    train_loader = GraphDataLoader(data.train, **loader_kwargs)
+    loader_kwargs["shuffle"] = False
+    valid_loader = GraphDataLoader(data.valid, **loader_kwargs)
 
     # - maybe do some pre-fitting
     if fit_config.pre_fit_model:
         # TODO: log
-        pre_fit_dataset = data.train_dataset()
+        pre_fit_dataset = data.train
         if fit_config.max_n_pre_fit is not None:
             pre_fit_dataset = pre_fit_dataset.sample(fit_config.max_n_pre_fit)
         logger.info("Pre-fitting the model")
         model.pre_fit(pre_fit_dataset)
+
+    # - log the model info
     log_model_info(model)
 
     # - create the task (a pytorch lightning module)
     task = LearnThePES(model, loss, optimizer, scheduler)
 
     # - train the model
-    trainer.fit(task, data)
+    trainer.fit(task, train_loader, valid_loader)
 
     # - load the best weights
     task.load_best_weights(model, trainer)
-
-    # - maybe hand off for some testing? (TODO)
 
     return trainer
 
@@ -256,7 +260,7 @@ def wandb_available():
         return False
 
 
-def create_training_trainer(
+def create_trainer(
     fit_config: FittingOptions,
     val_available: bool = False,
 ) -> pl.Trainer:
@@ -305,7 +309,3 @@ def create_training_trainer(
         trainer_kwargs["logger"] = pytorch_lightning.loggers.WandbLogger()
 
     return pl.Trainer(**trainer_kwargs)
-
-
-# TODO
-def create_testing_trainer(): ...

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Iterator, Protocol, Sequence, TypeVar
 
 import ase
 import torch.utils.data
+from locache import persist
 
 from graph_pes.graphs import LabelledGraph
 from graph_pes.graphs.keys import ALL_LABEL_KEYS, LabelKey
+from graph_pes.graphs.operations import available_labels
 from graph_pes.logger import logger
+from graph_pes.util import uniform_repr
 
 from .io import to_atomic_graph
 
@@ -31,6 +35,21 @@ class LabelledGraphDataset(torch.utils.data.Dataset, ABC):
 
     @abstractmethod
     def __len__(self) -> int: ...
+
+    def prepare_data(self):
+        """
+        Prepare the data for the dataset.
+
+        Called on rank-0 only: don't set any state here.
+        May be called multiple times.
+        """
+
+    def setup(self):
+        """
+        Set up the data for the dataset.
+
+        Called on every process in the distributed setup: set state here.
+        """
 
     def shuffled(self, seed: int = 42) -> ShuffledDataset:
         """
@@ -158,14 +177,13 @@ class SequenceDataset(LabelledGraphDataset):
         return len(self.graphs)
 
 
-# TODO: differentiate between structure and graph
-class AseDataset(LabelledGraphDataset):
+class ASEDataset(LabelledGraphDataset):
     """
     A dataset that wraps an ASE dataset.
 
     Parameters
     ----------
-    ase_dataset
+    structures
         The ASE dataset to wrap.
     cutoff
         The cutoff to use when creating neighbour indexes for the graphs.
@@ -175,27 +193,55 @@ class AseDataset(LabelledGraphDataset):
 
     def __init__(
         self,
-        ase_dataset: SizedDataset[ase.Atoms] | Sequence[ase.Atoms],
+        structures: SizedDataset[ase.Atoms] | Sequence[ase.Atoms],
         cutoff: float = 5.0,
         pre_transform: bool = False,
     ):
-        self.ase_dataset = ase_dataset
+        self.structures = structures
         self.cutoff = cutoff
 
         self.pre_transform = pre_transform
-        if pre_transform:
-            logger.info("Pre-transforming ASE dataset to graphs...")
-            self.graphs = [
-                to_atomic_graph(atoms, cutoff=cutoff) for atoms in ase_dataset
-            ]
+        self.graphs = None
 
-        else:
-            self.grahsp = None
+    def setup(self):
+        if self.pre_transform:
+            self.graphs = pre_transform_structures(
+                self.structures, cutoff=self.cutoff
+            )
 
     def __getitem__(self, index: int) -> LabelledGraph:
-        if self.pre_transform:
+        if self.graphs is not None:
             return self.graphs[index]
-        return to_atomic_graph(self.ase_dataset[index], cutoff=self.cutoff)
+        return to_atomic_graph(self.structures[index], cutoff=self.cutoff)
 
     def __len__(self) -> int:
-        return len(self.ase_dataset)
+        return len(self.structures)
+
+    def __repr__(self) -> str:
+        labels = available_labels(self[0])
+        return f"ASEDataset({len(self):,}, labels={labels})"
+
+
+@dataclass
+class FittingData:
+    train: LabelledGraphDataset
+    valid: LabelledGraphDataset
+
+    def __repr__(self) -> str:
+        return uniform_repr(
+            self.__class__.__name__,
+            train=self.train,
+            valid=self.valid,
+        )
+
+
+@persist
+def pre_transform_structures(
+    structures: SizedDataset[ase.Atoms],
+    cutoff: float = 5.0,
+) -> list[LabelledGraph]:
+    logger.info(
+        f"Caching neighbour lists for {len(structures)} structures "
+        f"with cutoff {cutoff}"
+    )
+    return [to_atomic_graph(atoms, cutoff=cutoff) for atoms in structures]

@@ -10,7 +10,7 @@ import dacite
 import yaml
 
 from graph_pes.core import AdditionModel, GraphPESModel
-from graph_pes.data.module import GraphDataModule
+from graph_pes.data.dataset import FittingData
 from graph_pes.training.loss import Loss, TotalLoss
 from graph_pes.training.opt import LRScheduler, Optimizer
 
@@ -190,6 +190,14 @@ class FittingOptions:
             check_val_every_n_epoch: 5
     """
 
+    loader_kwargs: Dict[str, Any]
+    """
+    Key-word arguments to pass to the underlying 
+    :class:`torch.utils.data.DataLoader`.
+
+    See their docs. # TODO
+    """
+
 
 @dataclass
 class FittingConfig(FittingOptions):
@@ -324,28 +332,29 @@ class Config:
     Specification for the data. 
     
     Point to one of the following:
-    - a (function that returns a) 
-      :class:`~graph_pes.data.module.GraphDataModule` using a fully 
-      qualified name and optionally some arguments
+    - a callable that returns a :class:`~graph_pes.data.dataset.FittingData` 
+      instance
+    - a dictionary mapping ``"train"`` and ``"valid"`` keys to callables that
+      return :class:`~graph_pes.data.dataset.LabelledGraphDataset` instances
 
     Examples
     --------
-    Load a custom data module from a function with no arguments:
+    Load custom data from a function with no arguments:
     .. code-block:: yaml
         
-        data: my_module.my_data_module()
+        data: my_module.my_fitting_data()
 
-    Use :func:`graph_pes.data.io.ase_data_module` to load an ASE dataset:
+    Point to :func:`graph_pes.data.load_atoms_datasets` with arguments:
     .. code-block:: yaml
-            
-        data: 
-            graph_pes.data.io.ase_data_module:
-                filename: data.xyz
-                seed: 42
-                split: 
-                    train: 1_000
-                    val: 100
-                    test: -1
+
+        data:
+            graph_pes.data.load_atoms_datasets:
+                id: QM9
+                cutoff: 5.0
+                n_train: 10000
+                n_val: 1000
+                property_map:
+                    energy: U0
     """
 
     loss: Union[str, Dict[str, Any], List[LossSpec]]
@@ -434,11 +443,26 @@ class Config:
 
         raise ValueError("# TODO")
 
-    def instantiate_data(self) -> GraphDataModule:
-        if isinstance(self.data, (str, dict)):
+    def instantiate_data(self) -> FittingData:
+        if isinstance(self.data, str):
             return _instantiate(self.data)
 
-        raise ValueError("# TODO")
+        if isinstance(self.data, dict):
+            if len(self.data) == 1:
+                return _instantiate(self.data)
+            elif len(self.data) == 2:
+                assert self.data.keys() == {"train", "valid"}
+                return FittingData(
+                    train=_instantiate(self.data["train"]),
+                    valid=_instantiate(self.data["valid"]),
+                )
+
+        raise ValueError(
+            "Unexpected data specification. "
+            "Please provide a callable or a dictionary containing "
+            "a single key (the fully qualified name of some callable) "
+            "or two keys ('train' and 'valid') mapping to callables."
+        )
 
     def instantiate_loss(self) -> TotalLoss:
         if isinstance(self.loss, (str, dict)):
