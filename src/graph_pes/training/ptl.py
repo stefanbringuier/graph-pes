@@ -55,6 +55,7 @@ def train_with_lightning(
     data.valid.setup()
 
     loader_kwargs = {**fit_config.loader_kwargs}
+    loader_kwargs["shuffle"] = True
     train_loader = GraphDataLoader(data.train, **loader_kwargs)
     loader_kwargs["shuffle"] = False
     valid_loader = GraphDataLoader(data.valid, **loader_kwargs)
