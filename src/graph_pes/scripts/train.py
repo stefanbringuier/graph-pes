@@ -2,15 +2,24 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import pytorch_lightning
+import wandb
 import yaml
-from graph_pes.config import Config
+from graph_pes.config import Config, get_default_config_values
 from graph_pes.deploy import deploy_model
 from graph_pes.logger import logger
-from graph_pes.training.ptl import train_with_lightning
-from graph_pes.util import nested_merge
+from graph_pes.training.ptl import create_trainer, train_with_lightning
+from graph_pes.util import nested_merge, random_id
+from pytorch_lightning.loggers import CSVLogger, WandbLogger
+
+warnings.filterwarnings(
+    "ignore", message=".*There is a wandb run already in progress.*"
+)
 
 
 def parse_args():
@@ -48,12 +57,11 @@ def parse_args():
     return parser.parse_args()
 
 
-def extract_config_from_command_line():
+def extract_config_from_command_line() -> Config:
     args = parse_args()
 
     # load default config
-    with open(Path(__file__).parent.parent / "configs/defaults.yaml") as f:
-        defaults: dict[str, Any] = yaml.safe_load(f)
+    defaults = get_default_config_values()
 
     # load user configs
     user_configs: list[dict[str, Any]] = []
@@ -90,6 +98,12 @@ def extract_config_from_command_line():
 
 
 def train_from_config(config: Config):
+    pytorch_lightning.seed_everything(config.general.seed)
+
+    # time to the millisecond
+    now = datetime.now().strftime("%F %T.%f")[:-3]
+    logger.info(f"Started training at {now}")
+
     logger.info(config)
 
     model = config.instantiate_model()  # gets logged later
@@ -98,32 +112,77 @@ def train_from_config(config: Config):
     logger.info(data)
 
     optimizer = config.fitting.instantiate_optimizer()
-    logger.info(f"Optimizer\n{optimizer}")
+    logger.info(optimizer)
 
     scheduler = config.fitting.instantiate_scheduler()
     if scheduler is not None:
-        logger.info(f"Scheduler\n{scheduler}")
+        logger.info(scheduler)
     else:
         logger.info("No learning rate scheduler specified.")
 
     total_loss = config.instantiate_loss()
-    logger.info(f"Loss\n{total_loss}")
+    logger.info(total_loss)
 
-    train_with_lightning(
-        model,
-        data,
-        loss=total_loss,
-        fit_config=config.fitting,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        config_to_log=config.to_nested_dict(),
-    )
+    # set-up the trainer
+    if config.wandb is not None:
+        wandb.init(**config.wandb)
+        assert wandb.run is not None
+        run_id = wandb.run.id
+    else:
+        run_id = random_id()
 
-    logger.info(
-        "Training complete: deploying model for use with LAMMPS to "
-        "./model.pt"
-    )
-    deploy_model(model, cutoff=5.0, path="model.pt")
+    try:
+        output_dir = Path(config.general.root_dir) / run_id
+        logger.info(f"Output directory: {output_dir}")
+
+        if config.wandb is not None:
+            lightning_logger = WandbLogger()
+        else:
+            lightning_logger = CSVLogger(
+                version=run_id, save_dir=output_dir, name=""
+            )
+
+        trainer = create_trainer(
+            early_stopping_patience=config.fitting.early_stopping_patience,
+            logger=lightning_logger,
+            val_available=True,
+            kwarg_overloads=config.fitting.trainer_kwargs,
+            output_dir=output_dir,
+        )
+        if trainer.logger is not None:
+            trainer.logger.log_hyperparams(config.to_nested_dict())
+
+        train_with_lightning(
+            trainer,
+            model,
+            data,
+            loss=total_loss,
+            fit_config=config.fitting,
+            optimizer=optimizer,
+            scheduler=scheduler,
+        )
+
+        # log the final path to the trainer.logger.summary
+        model_path = output_dir / "model.pt"
+        i = 1
+        while model_path.exists():
+            model_path = model_path.with_name(model_path.stem + f"_{i}.pt")
+            i += 1
+
+        if trainer.logger is not None:
+            trainer.logger.log_hyperparams({"model_path": model_path})
+
+        logger.info(
+            "Training complete: deploying model for use with "
+            f"LAMMPS to {model_path}"
+        )
+        deploy_model(model, cutoff=5.0, path=model_path)
+
+    except Exception as e:
+        logger.error(f"Training failed with error: {e}")
+        if config.wandb is not None:
+            wandb.finish()
+        raise e
 
 
 def main():

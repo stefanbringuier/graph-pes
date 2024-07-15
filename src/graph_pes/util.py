@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import random
+import string
 import sys
 import warnings
 from contextlib import contextmanager
@@ -18,12 +20,8 @@ MAX_Z = 118
 
 @overload
 def pairs(a: Sequence[T]) -> Iterator[tuple[T, T]]: ...
-
-
 @overload
 def pairs(a: Tensor) -> Iterator[tuple[Tensor, Tensor]]: ...
-
-
 def pairs(a) -> Iterator[tuple[T, T] | tuple[Tensor, Tensor]]:
     """
     Iterate over pairs of elements in `a`
@@ -179,3 +177,13 @@ def nested_merge(a: dict, b: dict):
             new_dict[key] = value
 
     return new_dict
+
+
+def random_id():
+    # a random selection of 8 chars from lower case letters and digits
+
+    # seed with the current time
+    rng = random.Random()
+    rng.seed()
+
+    return "".join(rng.choices(string.ascii_lowercase + string.digits, k=8))
