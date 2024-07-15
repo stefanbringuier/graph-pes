@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
 
+import helpers
 import pytest
 import torch
 from ase.build import molecule
@@ -10,7 +10,6 @@ from graph_pes.core import GraphPESModel
 from graph_pes.data.io import to_atomic_graph
 from graph_pes.deploy import deploy_model
 from graph_pes.graphs.operations import number_of_atoms
-from graph_pes.models import ALL_MODELS, NequIP
 
 CUTOFF = 1.5
 graph = to_atomic_graph(molecule("CH3CH2OH"), cutoff=CUTOFF)
@@ -20,16 +19,8 @@ graph = to_atomic_graph(molecule("CH3CH2OH"), cutoff=CUTOFF)
 @pytest.mark.filterwarnings(
     "ignore:.*training data does not contain energy labels.*"
 )
-@pytest.mark.parametrize(
-    "model_klass",
-    ALL_MODELS,
-    ids=[model.__name__ for model in ALL_MODELS],
-)
-def test_deploy(model_klass: type[GraphPESModel], tmp_path: Path):
-    # 1. instantiate the model
-    required_kwargs = defaultdict(dict)
-    required_kwargs[NequIP] = {"elements": ["C", "H", "O"]}
-    model = model_klass(**required_kwargs[model_klass])
+@helpers.parameterise_all_models(expected_elements=["C", "H", "O"])
+def test_deploy(model: GraphPESModel, tmp_path: Path):
     model.pre_fit([graph])  # required by some models before making predictions
 
     # 2. deploy the model
