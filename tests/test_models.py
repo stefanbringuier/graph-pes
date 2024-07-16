@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import itertools
-
 import helpers
 import pytest
 import torch
 from ase import Atoms
-from ase.io import read
-from graph_pes.core import AdditionModel, GraphPESModel, get_predictions
+from graph_pes.core import GraphPESModel, get_predictions
 from graph_pes.data.io import to_atomic_graph, to_atomic_graphs
 from graph_pes.graphs.operations import (
     has_cell,
@@ -15,9 +12,9 @@ from graph_pes.graphs.operations import (
     number_of_edges,
 )
 from graph_pes.models import LennardJones, Morse
+from graph_pes.models.addition import AdditionModel
 
-structures: list[Atoms] = read("tests/test.xyz", ":")  # type: ignore
-graphs = to_atomic_graphs(structures, cutoff=3)
+graphs = to_atomic_graphs(helpers.CU_TEST_STRUCTURES, cutoff=3)
 
 
 def test_model():
@@ -60,7 +57,7 @@ def test_pre_fit():
         model.pre_fit(graphs)
 
 
-@helpers.parameterise_model_classes(["Cu"])
+@helpers.parameterise_model_classes(expected_elements=["Cu"])
 def test_model_serialisation(model_class: type[GraphPESModel], tmp_path):
     # 1. instantiate the model
     m1 = model_class()
@@ -81,9 +78,7 @@ def test_addition():
     m = Morse()
 
     # test addition of two models
-    addition_model = lj + m
-    assert isinstance(addition_model, AdditionModel)
-    assert set(addition_model.models) == {lj, m}
+    addition_model = AdditionModel(lj=lj, morse=m)
     assert torch.allclose(
         addition_model(graphs[0]),
         lj(graphs[0]) + m(graphs[0]),
@@ -95,12 +90,3 @@ def test_addition():
     assert (
         lj.sigma.item() != original_lj_sigma
     ), "component LJ model was not pre-fitted"
-
-    # test nice errors
-    with pytest.raises(TypeError, match="Can't add"):
-        lj + "hello"  # type: ignore
-
-    # extra addition tests
-    for a, b in itertools.product([lj, addition_model], repeat=2):
-        total = a + b
-        assert isinstance(total, AdditionModel)

@@ -11,6 +11,7 @@ from graph_pes.models import (
     LennardJonesMixture,
     SchNet,
 )
+from graph_pes.models.addition import AdditionModel
 from graph_pes.models.scaling import AutoScaledPESModel
 from graph_pes.nn import PerElementParameter
 from torch import Tensor
@@ -58,9 +59,12 @@ def test_scaling():
     assert params[0].numel() == 2
 
 
-def test_coutning():
+def test_counting():
     _schnet_dim = 50
-    model = LearnableOffset() + SchNet(node_features=_schnet_dim)
+    model = AdditionModel(
+        offset=LearnableOffset(),
+        schnet=SchNet(node_features=_schnet_dim),
+    )
 
     non_pre_fit_params = sum(p.numel() for p in model.parameters())
 
