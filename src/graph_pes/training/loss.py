@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Callable, NamedTuple
+from typing import Callable, NamedTuple, Sequence
 
 import torch
 from graph_pes.graphs import LabelledBatch, keys
+from graph_pes.nn import UniformModuleList
 from graph_pes.transform import divide_per_atom
 from graph_pes.util import force_to_single_line, uniform_repr
 from torch import Tensor, nn
@@ -81,36 +82,6 @@ class Loss(nn.Module):
             metric=self.metric,
         )
 
-    ## Methods for creating total losses ##
-    def __mul__(self, weight: float | int) -> TotalLoss:
-        if not isinstance(weight, (int, float)):
-            raise TypeError(f"Cannot multiply Loss and {type(weight)}")
-
-        return TotalLoss([self], [weight])
-
-    def __rmul__(self, weight: float) -> TotalLoss:
-        if not isinstance(weight, (int, float)):
-            raise TypeError(f"Cannot multiply Loss and {type(weight)}")
-
-        return TotalLoss([self], [weight])
-
-    def __truediv__(self, weight: float | int) -> TotalLoss:
-        if not isinstance(weight, (int, float)):
-            raise TypeError(f"Cannot divide Loss and {type(weight)}")
-
-        return TotalLoss([self], [1 / weight])
-
-    def __add__(self, loss: Loss | TotalLoss) -> TotalLoss:
-        if isinstance(loss, Loss):
-            return TotalLoss([self, loss], [1, 1])
-        elif isinstance(loss, TotalLoss):
-            return TotalLoss([self] + list(loss.losses), [1] + loss.weights)
-        else:
-            raise TypeError(f"Cannot add Loss and {type(loss)}")
-
-    def __radd__(self, other: Loss | TotalLoss) -> TotalLoss:
-        return self.__add__(other)
-
 
 class SubLossPair(NamedTuple):
     loss_value: torch.Tensor
@@ -149,40 +120,12 @@ class TotalLoss(torch.nn.Module):
 
     def __init__(
         self,
-        losses: list[Loss],
-        weights: list[float | int] | None = None,
+        losses: Sequence[Loss],
+        weights: Sequence[float | int] | None = None,
     ):
         super().__init__()
-        self.losses: list[Loss] = nn.ModuleList(losses)  # type: ignore
+        self.losses = UniformModuleList(losses)
         self.weights = weights or [1.0] * len(losses)
-
-    def __add__(self, other: TotalLoss | Loss) -> TotalLoss:
-        if isinstance(other, Loss):
-            return TotalLoss(self.losses + [other], self.weights + [1.0])
-        elif isinstance(other, TotalLoss):
-            return TotalLoss(
-                self.losses + other.losses, self.weights + other.weights
-            )
-        else:
-            raise TypeError(f"Cannot add TotalLoss and {type(other)}")
-
-    def __mul__(self, other: float | int) -> TotalLoss:
-        if not isinstance(other, (int, float)):
-            raise TypeError(f"Cannot multiply TotalLoss and {type(other)}")
-
-        return TotalLoss(self.losses, [w * other for w in self.weights])
-
-    def __rmul__(self, other: float | int) -> TotalLoss:
-        if not isinstance(other, (int, float)):
-            raise TypeError(f"Cannot multiply TotalLoss and {type(other)}")
-
-        return TotalLoss(self.losses, [w * other for w in self.weights])
-
-    def __true_div__(self, other: float | int) -> TotalLoss:
-        if not isinstance(other, (int, float)):
-            raise TypeError(f"Cannot divide TotalLoss and {type(other)}")
-
-        return TotalLoss(self.losses, [w / other for w in self.weights])
 
     def forward(
         self,
@@ -307,27 +250,6 @@ class MAE(torch.nn.L1Loss):
 
     def __init__(self):
         super().__init__()
-
-
-class MeanVectorPercentageError(torch.nn.Module):
-    r"""
-    Mean vector percentage error metric:
-
-    .. math::
-        \frac{1}{N} \sum_i^N \frac{\left{||} \hat{v}_i - v_i \right{||}}
-        {||v_i|| + \varepsilon}
-    """
-
-    def __init__(self, epsilon: float = 1e-6):
-        super().__init__()
-        self.epsilon = epsilon
-
-    def forward(
-        self, input: torch.Tensor, target: torch.Tensor
-    ) -> torch.Tensor:
-        return (
-            (input - target).norm(dim=-1) / (target.norm(dim=-1) + self.epsilon)
-        ).mean()
 
 
 def _get_metric_name(metric: Callable[[Tensor, Tensor], Tensor]) -> str:
