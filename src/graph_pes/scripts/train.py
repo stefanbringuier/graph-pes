@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytorch_lightning
+import torch
 import wandb
 import yaml
 from graph_pes.config import Config, get_default_config_values
@@ -166,19 +167,22 @@ def train_from_config(config: Config):
 
         # log the final path to the trainer.logger.summary
         model_path = output_dir / "model.pt"
-        i = 1
-        while model_path.exists():
-            model_path = model_path.with_name(model_path.stem + f"_{i}.pt")
-            i += 1
+        lammps_model_path = output_dir / "lammps_model.pt"
 
         if trainer.logger is not None:
-            trainer.logger.log_hyperparams({"model_path": model_path})
+            trainer.logger.log_hyperparams(
+                {
+                    "model_path": model_path,
+                    "lammps_model_path": lammps_model_path,
+                }
+            )
 
+        torch.save(model, model_path)
         logger.info(
             "Training complete: deploying model for use with "
             f"LAMMPS to {model_path}"
         )
-        deploy_model(model, cutoff=5.0, path=model_path)
+        deploy_model(model, cutoff=5.0, path=lammps_model_path)
 
     except Exception as e:
         logger.error(f"Training failed with error: {e}")
