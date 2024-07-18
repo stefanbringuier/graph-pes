@@ -14,6 +14,7 @@ import yaml
 from graph_pes.config import Config, get_default_config_values
 from graph_pes.deploy import deploy_model
 from graph_pes.logger import log_to_file, logger, set_level
+from graph_pes.scripts.generation import config_auto_generation
 from graph_pes.training.ptl import create_trainer, train_with_lightning
 from graph_pes.util import nested_merge, random_id
 from pytorch_lightning.loggers import CSVLogger, WandbLogger
@@ -38,11 +39,11 @@ def parse_args():
     parser.add_argument(
         "--config",
         action="append",
-        required=True,
         help=(
             "Path to the configuration file. "
             "This argument can be used multiple times, with later files "
-            "taking precedence over earlier ones in the case of conflicts."
+            "taking precedence over earlier ones in the case of conflicts. "
+            "If no config files are provided, the script will auto-generate."
         ),
     )
 
@@ -60,6 +61,9 @@ def parse_args():
 
 def extract_config_from_command_line() -> Config:
     args = parse_args()
+    print(args.config)
+    if not args.config:
+        return config_auto_generation()
 
     # load default config
     defaults = get_default_config_values()
