@@ -55,17 +55,21 @@ def to_atomic_graph(
         property_mapping = {k: k for k in keys.ALL_LABEL_KEYS if k in all_keys}
 
     for label, name_on_structure in property_mapping.items():
-        if label in structure.info:
-            data = structure.info[label]
+        if name_on_structure in structure.info:
+            data = structure.info[name_on_structure]
             if isinstance(data, (int, float)):
                 graph[label] = torch.scalar_tensor(data, dtype=torch.float)
             else:
                 graph[label] = torch.FloatTensor(
                     structure.info[name_on_structure]
                 )
-        elif label in structure.arrays:
+        elif name_on_structure in structure.arrays:
             graph[label] = torch.FloatTensor(
                 structure.arrays[name_on_structure]
+            )
+        else:
+            raise KeyError(
+                f"Property {name_on_structure} not found for {structure}"
             )
 
     return graph  # type: ignore
