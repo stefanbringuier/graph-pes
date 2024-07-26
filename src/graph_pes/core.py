@@ -23,6 +23,7 @@ from .graphs.operations import (
     has_cell,
     sum_per_structure,
     to_batch,
+    trim_edges,
 )
 from .nn import PerElementParameter
 from .util import differentiate, require_grad
@@ -45,8 +46,19 @@ class GraphPESModel(nn.Module, ABC):
     `implementation <_modules/graph_pes/models/pairwise.html#PairPotential>`_.
     """
 
-    def __init__(self):
+    def __init__(self, cutoff: float | None = None):
         super().__init__()
+
+        self.cutoff: Tensor | None
+        r"""
+        The cutoff radius for the model (if applicable). During the forward 
+        pass, only edges between atoms that are closer than this distance 
+        will be considered.
+        """
+        if cutoff is not None:
+            self.register_buffer("cutoff", torch.scalar_tensor(cutoff))
+        else:
+            self.cutoff = None
 
         # save as a buffer so that this is de/serialized
         # with the model
@@ -70,6 +82,9 @@ class GraphPESModel(nn.Module, ABC):
             where :code:`B` is the batch size. Otherwise, a scalar tensor
             will be returned.
         """
+        if self.cutoff is not None:
+            graph = trim_edges(graph, self.cutoff.item())
+
         local_energies = self.predict_local_energies(graph).squeeze()
         return sum_per_structure(local_energies, graph)
 
