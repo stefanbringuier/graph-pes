@@ -6,9 +6,10 @@ from typing import Callable
 import ase.build
 import pytest
 import pytorch_lightning
+import torch
 from ase import Atoms
 from ase.io import read
-from graph_pes.core import GraphPESModel
+from graph_pes.core import ConservativePESModel
 from graph_pes.data.io import to_atomic_graph
 from graph_pes.graphs.graph_typing import AtomicGraph
 from graph_pes.models import ALL_MODELS, MACE, NequIP
@@ -16,7 +17,7 @@ from graph_pes.models import ALL_MODELS, MACE, NequIP
 
 def all_model_factories(
     expected_elements: list[str],
-) -> tuple[list[str], list[Callable[[], GraphPESModel]]]:
+) -> tuple[list[str], list[Callable[[], ConservativePESModel]]]:
     pytorch_lightning.seed_everything(42)
     required_kwargs = {
         NequIP: {"elements": expected_elements},
@@ -24,8 +25,8 @@ def all_model_factories(
     }
 
     def _model_factory(
-        model_klass: type[GraphPESModel],
-    ) -> Callable[[], GraphPESModel]:
+        model_klass: type[ConservativePESModel],
+    ) -> Callable[[], ConservativePESModel]:
         return lambda: model_klass(**required_kwargs.get(model_klass, {}))  # type: ignore
 
     names = [model.__name__ for model in ALL_MODELS]
@@ -35,7 +36,7 @@ def all_model_factories(
 
 def all_models(
     expected_elements: list[str],
-) -> tuple[list[str], list[GraphPESModel]]:
+) -> tuple[list[str], list[ConservativePESModel]]:
     names, factories = all_model_factories(expected_elements)
     return names, [factory() for factory in factories]
 
@@ -70,3 +71,8 @@ CU_STRUCTURES_FILE = Path(__file__).parent / "test.xyz"
 CU_TEST_STRUCTURES: list[Atoms] = read(CU_STRUCTURES_FILE, ":")  # type: ignore
 
 CONFIGS_DIR = Path(__file__).parent.parent.parent / "configs"
+
+
+class DoesNothingModel(ConservativePESModel):
+    def predict_local_energies(self, graph: AtomicGraph) -> torch.Tensor:
+        return torch.zeros(len(graph["atomic_numbers"]))
