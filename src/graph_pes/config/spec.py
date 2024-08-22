@@ -16,6 +16,7 @@ from graph_pes.data.dataset import FittingData
 from graph_pes.models.addition import AdditionModel
 from graph_pes.training.loss import Loss, TotalLoss
 from graph_pes.training.opt import LRScheduler, Optimizer
+from graph_pes.training.ptl_utils import VerboseSWACallback
 
 from .utils import create_from_data, create_from_string
 
@@ -34,7 +35,7 @@ class FittingOptions:
     max_n_pre_fit: Union[int, None]
     """
     The maximum number of graphs to use for pre-fitting.
-    Set to ``None`` to use all available data.
+    Set to ``None`` to use all the available training data.
     """
 
     early_stopping_patience: Union[int, None]
@@ -69,7 +70,48 @@ class FittingOptions:
 
 
 @dataclass
+class SWAConfig:
+    """
+    Configuration for Stochastic Weight Averaging.
+
+    Internally, this is handled by `this PyTorch Lightning callback
+    <https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.StochasticWeightAveraging.html>`__.
+    """
+
+    lr: float
+    """
+    The learning rate to use during the SWA phase. If not specified,
+    the learning rate from the end of the training phase will be used.
+    """
+
+    start: Union[int, float] = 0.8
+    """
+    The epoch at which to start SWA. If a float, it will be interpreted
+    as a fraction of the total number of epochs.
+    """
+
+    anneal_epochs: int = 10
+    """
+    The number of epochs over which to linearly anneal the learning rate
+    to zero.
+    """
+
+    strategy: Literal["linear", "cosine"] = "linear"
+    """The strategy to use for annealing the learning rate."""
+
+    def instantiate_lightning_callback(self):
+        return VerboseSWACallback(
+            swa_lrs=self.lr,
+            swa_epoch_start=self.start,
+            annealing_epochs=self.anneal_epochs,
+            annealing_strategy=self.strategy,
+        )
+
+
+@dataclass
 class FittingConfig(FittingOptions):
+    """Configuration for the fitting process:"""
+
     optimizer: Union[str, Dict[str, Any]]
     """
     Specification for the optimizer.
@@ -82,6 +124,7 @@ class FittingConfig(FittingOptions):
     Examples
     --------
     The default (see :func:`~graph_pes.training.opt.Optimizer` for details):
+
     .. code-block:: yaml
     
         optimizer:
@@ -92,6 +135,7 @@ class FittingConfig(FittingOptions):
                 amsgrad: false
 
     Or a custom one:
+    
     .. code-block:: yaml
     
         optimizer: my.module.MagicOptimizer()
@@ -101,7 +145,8 @@ class FittingConfig(FittingOptions):
     """
     Specification for the learning rate scheduler. Optional.
 
-    # TODO: more schedules/flexibility
+    TODO: more schedules/flexibility
+
     Examples
     --------
     .. code-block:: yaml
@@ -112,6 +157,9 @@ class FittingConfig(FittingOptions):
                 factor: 0.5
                 patience: 10
     """
+
+    swa: Union[SWAConfig, None]
+    """Configuration for Stochastic Weight Averaging. Optional."""
 
     ### Methods ###
 
@@ -157,17 +205,16 @@ class Config:
     name. This allows you to point both to classes and functions that
     ``graph-pes`` provides, as well as your own custom code.
 
-    Notes
-    -----
-    To point to an object, simplify specify the **fully qualified name**,
-    e.g. ``my_module.my_object``.
+    .. note::
+        To point to an object, simplify specify the **fully qualified name**,
+        e.g. ``my_module.my_object``.
 
-    If you want to use the return value of a
-    function with no arguments, append ``()`` to the name, e.g.
-    ``my_module.my_function()``.
+        If you want to use the return value of a
+        function with no arguments, append ``()`` to the name, e.g.
+        ``my_module.my_function()``.
 
-    To point to a class or function with arguments, use a nested dictionary
-    structure like so:
+        To point to a class or function with arguments, use a nested dictionary
+        structure like so:
 
     .. code-block:: yaml
 
@@ -183,6 +230,7 @@ class Config:
     Examples
     --------
     To specify a single model with parameters:
+
     .. code-block:: yaml
     
         model:
@@ -191,13 +239,15 @@ class Config:
                 epsilon: 1.0
     
     or, if no parameters are needed:
+
     .. code-block:: yaml
     
         model: my_model.SpecialModel()
     
-    To specify multiple components of an :class:`~graph_pes.core.AdditionModel`,
-    create a list of specications as above, using whatever unique names you
-    please:
+    To specify multiple components of an 
+    :class:`~graph_pes.models.AdditionModel`, create a list of specications as 
+    above, using whatever unique names you please:
+
     .. code-block:: yaml
     
         model:
@@ -211,6 +261,7 @@ class Config:
     Specification for the data. 
     
     Point to one of the following:
+
     - a callable that returns a :class:`~graph_pes.data.dataset.FittingData` 
       instance
     - a dictionary mapping ``"train"`` and ``"valid"`` keys to callables that
@@ -219,11 +270,13 @@ class Config:
     Examples
     --------
     Load custom data from a function with no arguments:
+
     .. code-block:: yaml
         
         data: my_module.my_fitting_data()
 
     Point to :func:`graph_pes.data.load_atoms_datasets` with arguments:
+
     .. code-block:: yaml
 
         data:
@@ -244,6 +297,7 @@ class Config:
     Examples
     --------
     To specify a single loss function:
+
     .. code-block:: yaml
     
         loss: graph_pes.training.loss.PerAtomEnergyLoss()
@@ -258,6 +312,7 @@ class Config:
                     metric: graph_pes.training.loss.RMSE()
 
     To specify multiple loss functions with weights:
+
     .. code-block:: yaml
     
         loss:
@@ -272,9 +327,10 @@ class Config:
     """
 
     fitting: FittingConfig
-    """
-    Configuration for the fitting process: see :class:`FittingConfig`.
-    """
+    """see :class:`~graph_pes.config.spec.FittingConfig`"""
+
+    general: GeneralConfig
+    """Miscellaneous configuration options."""
 
     wandb: Union[Dict[str, Any], None]
     """
@@ -300,9 +356,6 @@ class Config:
         
             wandb: null
     """
-
-    general: GeneralConfig
-    """Miscellaneous configuration options."""
 
     ### Methods ###
 
