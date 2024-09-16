@@ -14,7 +14,7 @@ from graph_pes.graphs.operations import number_of_structures
 from graph_pes.logger import logger
 from graph_pes.training.loss import RMSE, Loss, PerAtomEnergyLoss, TotalLoss
 from graph_pes.training.opt import LRScheduler, Optimizer
-from graph_pes.training.ptl_utils import ModelTimer
+from graph_pes.training.ptl_utils import LoggedProgressBar, ModelTimer
 from graph_pes.training.util import log_model_info
 from pytorch_lightning.callbacks import (
     EarlyStopping,
@@ -60,7 +60,9 @@ def train_with_lightning(
         pre_fit_dataset = data.train
         if fit_config.max_n_pre_fit is not None:
             pre_fit_dataset = pre_fit_dataset.sample(fit_config.max_n_pre_fit)
-        logger.info(f"Pre-fitting the model on {len(pre_fit_dataset)} samples")
+        logger.info(
+            f"Pre-fitting the model on {len(pre_fit_dataset):,} samples"
+        )
         model.pre_fit(pre_fit_dataset)
     trainer.strategy.barrier("pre-fit")
 
@@ -251,6 +253,7 @@ def create_trainer(
     valid_available: bool = False,
     logger: Logger | None = None,
     output_dir: Path | None = None,
+    progress: Literal["rich", "logged"] = "rich",
 ) -> pl.Trainer:
     # create the default callbacks
     callbacks: dict[str, pl.Callback] = dict(
@@ -263,7 +266,10 @@ def create_trainer(
             save_top_k=1,
             save_weights_only=True,
         ),
-        progress_bar=RichProgressBar(),
+        progress_bar={
+            "rich": RichProgressBar(),
+            "logged": LoggedProgressBar(),
+        }[progress],
         timer=ModelTimer(),
     )
     if early_stopping_patience is not None:
