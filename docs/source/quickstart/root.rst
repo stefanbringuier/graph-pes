@@ -6,6 +6,8 @@ Quickstart
     :hidden:
 
     train-a-model
+    model-analysis
+    model-fine-tuning
 
 
 
