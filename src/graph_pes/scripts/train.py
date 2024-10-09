@@ -5,7 +5,6 @@ import contextlib
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import pytorch_lightning
 import torch
@@ -15,7 +14,12 @@ from graph_pes.deploy import deploy_model
 from graph_pes.logger import log_to_file, logger, set_level
 from graph_pes.scripts.generation import config_auto_generation
 from graph_pes.training.ptl import create_trainer, train_with_lightning
-from graph_pes.util import nested_merge, random_dir, uniform_repr
+from graph_pes.util import (
+    build_single_nested_dict,
+    nested_merge_all,
+    random_dir,
+    uniform_repr,
+)
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.loggers import WandbLogger as PTLWandbLogger
 
@@ -40,30 +44,21 @@ OUTPUT_DIR = "graph-pes-output-dir"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description=(
-            "Train a GraphPES model from a configuration file "
-            "using PyTorch Lightning."
-        ),
-        epilog=("Copyright 2023-24, John Gardner"),
+        description="Train a GraphPES model using PyTorch Lightning.",
+        epilog="Copyright 2023-24, John Gardner",
     )
 
     parser.add_argument(
-        "--config",
-        action="append",
-        help=(
-            "Path to the configuration file. "
-            "This argument can be used multiple times, with later files "
-            "taking precedence over earlier ones in the case of conflicts. "
-            "If no config files are provided, the script will auto-generate."
-        ),
-    )
-
-    parser.add_argument(
-        "overrides",
+        "args",
         nargs="*",
         help=(
-            "Config overrides in the form nested^key=value, "
-            "separated by spaces, e.g. fitting^loader_kwargs^batch_size=32. "
+            "Config files and command line specifications. "
+            "Config files should be YAML (.yaml/.yml) files. "
+            "Command line specifications should be in the form "
+            "nested^key=value. "
+            "Final config is built up from these items in a left "
+            "to right manner, with later items taking precedence "
+            "over earlier ones in the case of conflicts."
         ),
     )
 
@@ -73,44 +68,39 @@ def parse_args():
 def extract_config_from_command_line() -> Config:
     args = parse_args()
 
-    if not args.config:
-        # TODO: change this to just an alternative way to get user_config
-        return config_auto_generation()
-
     # load default config
     defaults = get_default_config_values()
 
-    # load user configs
-    user_configs: list[dict[str, Any]] = []
-    for config_path in args.config:
-        with open(config_path) as f:
-            user_configs.append(yaml.safe_load(f))
+    parsed_configs = []
 
-    # get the config object
-    final_config_dict = defaults
-    for user_config in user_configs:
-        final_config_dict = nested_merge(final_config_dict, user_config)
+    if not args.args:
+        parsed_configs.append(config_auto_generation())
 
-    # apply overrides
-    for override in args.overrides:
-        if override.count("=") != 1:
+    for arg in args.args:
+        if arg.endswith(".yaml") or arg.endswith(".yml"):
+            # it's a config file
+            with open(arg) as f:
+                parsed_configs.append(yaml.safe_load(f))
+
+        elif "=" in arg:
+            # it's an override
+            key, value = arg.split("=")
+            keys = key.split("^")
+
+            # parse the value
+            with contextlib.suppress(yaml.YAMLError):
+                value = yaml.safe_load(value)
+
+            nested_dict = build_single_nested_dict(keys, value)
+            parsed_configs.append(nested_dict)
+
+        else:
             raise ValueError(
-                f"Invalid override: {override}. "
-                "Expected something of the form key=value"
+                f"Invalid argument: {arg}. "
+                "Expected a YAML file or an override in the form key=value"
             )
-        key, value = override.split("=")
-        keys = key.split("^")
 
-        # parse the value
-        with contextlib.suppress(yaml.YAMLError):
-            value = yaml.safe_load(value)
-
-        current = final_config_dict
-        for k in keys[:-1]:
-            current.setdefault(k, {})
-            current = current[k]
-        current[keys[-1]] = value
-
+    final_config_dict = nested_merge_all(defaults, *parsed_configs)
     return Config.from_dict(final_config_dict)
 
 
@@ -298,8 +288,8 @@ def train_from_config(config: Config):
                     "lammps_model_path": lammps_model_path,
                 }
             )
-            log(f"Model saved to {model_path}")
             torch.save(model, model_path)
+            log(f"Model saved to {model_path}")
             log(f"Deploying model for use with LAMMPS to {lammps_model_path}")
             deploy_model(model, cutoff=5.0, path=lammps_model_path)
 
