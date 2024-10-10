@@ -21,6 +21,7 @@ from .graphs import (
 )
 from .graphs.operations import (
     has_cell,
+    is_batch,
     sum_per_structure,
     to_batch,
     trim_edges,
@@ -62,14 +63,11 @@ class ConservativePESModel(nn.Module, ABC):
         :math:`\sigma_{Z_i}` is the scaling factor for element :math:`Z_i`.
     """
 
-    def __init__(self, cutoff: float | None, auto_scale: bool):
+    def __init__(self, cutoff: float, auto_scale: bool):
         super().__init__()
 
-        self.cutoff: torch.Tensor | None
-        if cutoff is not None:
-            self.register_buffer("cutoff", torch.scalar_tensor(cutoff))
-        else:
-            self.cutoff = None
+        self.cutoff: torch.Tensor
+        self.register_buffer("cutoff", torch.tensor(cutoff))
 
         self.per_element_scaling: PerElementParameter | None
         if auto_scale:
@@ -82,8 +80,9 @@ class ConservativePESModel(nn.Module, ABC):
             self.per_element_scaling = None
 
         # save as a buffer so that this is de/serialized with the model
+        # need to use int(False) to ensure nice torchscript behaviour
         self._has_been_pre_fit: torch.Tensor
-        self.register_buffer("_has_been_pre_fit", torch.tensor(False))
+        self.register_buffer("_has_been_pre_fit", torch.tensor(int(False)))
 
     def predict_scaled_local_energies(self, graph: AtomicGraph) -> torch.Tensor:
         local_energies = self.predict_local_energies(graph).squeeze()
@@ -111,8 +110,7 @@ class ConservativePESModel(nn.Module, ABC):
             where :code:`B` is the batch size. Otherwise, a scalar tensor
             will be returned.
         """
-        if self.cutoff is not None:
-            graph = trim_edges(graph, self.cutoff.item())
+        graph = trim_edges(graph, self.cutoff.item())
         local_energies = self.predict_scaled_local_energies(graph).squeeze()
         return sum_per_structure(local_energies, graph)
 
@@ -189,7 +187,7 @@ class ConservativePESModel(nn.Module, ABC):
                     stacklevel=2,
                 )
 
-            self._has_been_pre_fit.fill_(True)
+            self._has_been_pre_fit.fill_(int(True))
             self.model_specific_pre_fit(graph_batch)
 
         # 3. finally, register all per-element parameters
@@ -321,19 +319,54 @@ def get_predictions(
     predictions: dict[keys.LabelKey, torch.Tensor] = {}
 
     if want_stress:
-        # The virial stress tensor is the gradient of the total energy wrt
-        # an infinitesimal change in the cell parameters.
-        # We therefore add this change to the cell, such that
-        # we can calculate the gradient wrt later if required.
+        # See About>Theory in the graph-pes for an explanation of the
+        # maths behind this.
         #
-        # See <> TODO: find reference
-        actual_cell = graph[keys.CELL]
-        change_to_cell = torch.zeros_like(actual_cell, requires_grad=True)
+        # The stress tensor is the gradient of the total energy wrt
+        # a symmetric expansion of the structure (i.e. that acts on
+        # both the cell and the atomic positions).
+        #
+        # F. Knuth et al. All-electron formalism for total energy strain
+        # derivatives and stress tensor components for numeric atom-centered
+        # orbitals. Computer Physics Communications 190, 33–50 (2015).
+
+        change_to_cell = torch.zeros_like(graph[keys.CELL], requires_grad=True)
         symmetric_change = 0.5 * (
             change_to_cell + change_to_cell.transpose(-1, -2)
-        )
-        graph[keys.CELL] = actual_cell + symmetric_change
+        )  # (n_structures, 3, 3) if batched, else (3, 3)
+        scaling = torch.eye(3) + symmetric_change
+
+        old_positions = graph[keys._POSITIONS]
+        old_cell = graph[keys.CELL]
+
+        if is_batch(graph):
+            scaling_per_atom = torch.index_select(
+                scaling,
+                dim=0,
+                index=graph[keys.BATCH],  # type: ignore
+            )  # (n_atoms, 3, 3)
+
+            # to go from (N, 3) @ (N, 3, 3) -> (N, 3), we need to un/squeeze:
+            # (N, 1, 3) @ (N, 3, 3) -> (N, 1, 3) -> (N, 3)
+            new_positions = (
+                graph[keys._POSITIONS].unsqueeze(-2) @ scaling_per_atom
+            ).squeeze()
+            # (M, 3, 3) @ (M, 3, 3) -> (M, 3, 3)
+            new_cell = graph[keys.CELL] @ scaling
+
+        else:
+            # (N, 3) @ (3, 3) -> (N, 3)
+            new_positions = graph[keys._POSITIONS] @ scaling
+            new_cell = graph[keys.CELL] @ scaling
+
+        # change to positions will be a tensor of all 0's, but will allow
+        # gradients to flow backwards through the energy calculation
+        # and allow us to calculate the stress tensor as the gradient
+        # of the energy wrt the change in cell.
+        graph[keys._POSITIONS] = new_positions
+        graph[keys.CELL] = new_cell
         stress_context = require_grad(change_to_cell)
+
     else:
         change_to_cell = torch.zeros_like(graph[keys.CELL])
         stress_context = nullcontext()
@@ -359,7 +392,12 @@ def get_predictions(
         # TODO: check stress vs virial common definition
         if keys.STRESS in properties:
             stress = differentiate(energy, change_to_cell)
-            predictions[keys.STRESS] = stress
+            graph[keys._POSITIONS] = old_positions
+            graph[keys.CELL] = old_cell
+            cell_volume = torch.det(graph[keys.CELL])
+            if is_batch(graph):
+                cell_volume = cell_volume.view(-1, 1, 1)
+            predictions[keys.STRESS] = stress / cell_volume
 
     if not training:
         for key, value in predictions.items():
