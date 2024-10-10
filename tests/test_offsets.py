@@ -5,7 +5,6 @@ import numpy as np
 import pytest
 import torch
 from ase import Atoms
-from graph_pes.core import get_predictions
 from graph_pes.data.io import to_atomic_graphs
 from graph_pes.graphs.operations import number_of_atoms, to_batch
 from graph_pes.models.offsets import EnergyOffset, FixedOffset, LearnableOffset
@@ -35,12 +34,11 @@ def test_offset_behaviour(offset_model: EnergyOffset, trainable: bool):
     n = number_of_atoms(graph)
 
     assert offset_model.predict_local_energies(graph).shape == (n,)
-
-    if not trainable:
-        with pytest.warns(UserWarning, match="no grad function"):
-            predictions = get_predictions(offset_model, graph, training=True)
-    else:
-        predictions = get_predictions(offset_model, graph, training=True)
+    predictions = offset_model._get_predictions(
+        graph,
+        properties=["energy", "forces"],
+        training=True,
+    )
 
     assert "energy" in predictions
     # total energy is the sum of offsets of all atoms, which are Cu
