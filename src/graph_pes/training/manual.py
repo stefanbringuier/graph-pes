@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Sequence
 
 from graph_pes.config import FittingOptions
-from graph_pes.core import ConservativePESModel
+from graph_pes.core import GraphPESModel
 from graph_pes.data.dataset import (
     FittingData,
     LabelledGraphDataset,
@@ -21,13 +21,13 @@ from graph_pes.graphs.operations import (
 )
 from graph_pes.logger import logger
 from graph_pes.training.loss import RMSE, Loss, TotalLoss
-from graph_pes.training.opt import Adam, Optimizer
+from graph_pes.training.opt import Optimizer
 from graph_pes.training.ptl import create_trainer, train_with_lightning
 
 
 # TODO: add logger folder
 def train_the_model(
-    model: ConservativePESModel,
+    model: GraphPESModel,
     train_data: Sequence[LabelledGraph] | LabelledGraphDataset,
     val_data: Sequence[LabelledGraph] | LabelledGraphDataset,
     optimizer: Optimizer | None = None,  # TODO change to factory
@@ -52,7 +52,7 @@ def train_the_model(
     if config_to_log is None:
         config_to_log = {}
     if optimizer is None:
-        optimizer = Adam(lr=3e-3)
+        optimizer = Optimizer("Adam", lr=3e-3)
 
     # create data module
     if not isinstance(train_data, LabelledGraphDataset):
@@ -63,7 +63,7 @@ def train_the_model(
     # sanity check on cpu TODO: move to ptl
     dummy_batch = to_batch(list(train_data.up_to_n(10)))
     try:
-        model(dummy_batch)
+        model.get_all_PES_predictions(dummy_batch)
     except Exception as e:
         raise ValueError("The model does not appear to work") from e
 
