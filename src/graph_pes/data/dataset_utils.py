@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 from typing import Literal
 
+import ase.io
 import numpy as np
 from load_atoms import load_dataset
 
@@ -14,7 +15,7 @@ def load_atoms_dataset(
     id: str | pathlib.Path,
     cutoff: float,
     n_train: int,
-    n_valid: int,
+    n_valid: int = -1,
     split: Literal["random", "sequential"] = "random",
     seed: int = 42,
     pre_transform: bool = True,
@@ -33,7 +34,9 @@ def load_atoms_dataset(
     n_train:
         The number of training structures.
     n_valid:
-        The number of validation structures.
+        The number of validation structures. If ``-1``, the number of validation
+        structures is set to the number of remaining structures after
+        training structures are chosen.
     split:
         The split method. ``"random"`` shuffles the structures before
         choosing a non-overlapping split, while ``"sequential"`` takes the
@@ -73,6 +76,9 @@ def load_atoms_dataset(
         idxs = np.random.default_rng(seed).permutation(len(structures))
         structures = [structures[i] for i in idxs]
 
+    if n_valid == -1:
+        n_valid = len(structures) - n_train
+
     train_structures = structures[:n_train]
     val_structures = structures[n_train : n_train + n_valid]
 
@@ -80,3 +86,64 @@ def load_atoms_dataset(
         ASEDataset(train_structures, cutoff, pre_transform, property_map),
         ASEDataset(val_structures, cutoff, pre_transform, property_map),
     )
+
+
+def file_dataset(
+    path: str | pathlib.Path,
+    cutoff: float,
+    n: int | None = None,
+    shuffle: bool = True,
+    seed: int = 42,
+    pre_transform: bool = True,
+    property_map: dict[keys.LabelKey, str] | None = None,
+) -> ASEDataset:
+    """
+    Load an ASE dataset from a file.
+
+    Parameters
+    ----------
+    path:
+        The path to the file.
+    cutoff:
+        The cutoff radius for the neighbour list.
+    n:
+        The number of structures to load. If ``None``,
+        all structures are loaded.
+    shuffle:
+        Whether to shuffle the structures.
+    seed:
+        The random seed used for shuffling.
+    pre_transform:
+        Whether to pre-calculate the neighbour lists for each structure.
+    property_map:
+        A mapping from properties expected in ``graph-pes`` to their names
+        in the dataset.
+
+    Returns
+    -------
+    ASEDataset
+        The ASE dataset.
+
+    Example
+    -------
+    Load a dataset from a file, ensuring that the ``energy`` property is
+    mapped to ``U0``:
+
+    >>> file_dataset(
+    ...     "training_data.xyz",
+    ...     cutoff=5.0,
+    ...     property_map={"energy": "U0"},
+    ... )
+    """
+
+    structures = ase.io.read(path, index=":")
+    assert isinstance(structures, list)
+
+    if shuffle:
+        idxs = np.random.default_rng(seed).permutation(len(structures))
+        structures = [structures[i] for i in idxs]
+
+    if n is not None:
+        structures = structures[:n]
+
+    return ASEDataset(structures, cutoff, pre_transform, property_map)

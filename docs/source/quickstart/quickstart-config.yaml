@@ -1,5 +1,5 @@
 general:
-  run_id: quickstart-run
+  run_id: qm7-quickstart
   progress: logged
 
 # train a PaiNN model ...
@@ -8,31 +8,36 @@ model:
     layers: 3
     cutoff: 3.0 # radial cutoff in Å
 
-# ... on structures from the QM7 dataset ...
+# ... on structures from local files ...
 data:
-  graph_pes.data.load_atoms_dataset:
-    id: QM7
-    cutoff: 3.0 # radial cutoff in Å
-    n_train: 1_000
-    n_valid: 100
-
+  train:
+    graph_pes.data.file_dataset:
+      path: train.xyz
+      cutoff: 3.0 
+      n: 1000
+      shuffle: false
+  valid:
+    graph_pes.data.file_dataset:
+      path: val.xyz
+      cutoff: 3.0 
+ 
 # ... using a simple energy loss function ...
 loss: graph_pes.training.loss.PerAtomEnergyLoss()
 
 # ... with the following settings ...
 fitting:
-  trainer_kwargs: # passed straight to the lightning trainer
-    max_epochs: 25
-    accelerator: auto # use a gpu if available
+  trainer_kwargs:
+    max_epochs: 100
+    accelerator: auto
 
   optimizer:
     graph_pes.training.opt.Optimizer:
       name: AdamW
-      lr: 0.01
+      lr: 0.0001
 
-  loader_kwargs: # passed straight to the data loader
+  loader_kwargs:
     batch_size: 16
 
 # ... and log to Weights & Biases
 wandb:
-  project: graph-pes
+  project: graph-pes-demo
