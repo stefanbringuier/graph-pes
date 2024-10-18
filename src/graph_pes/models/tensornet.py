@@ -3,14 +3,15 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from graph_pes.core import LocalEnergyModel
-from graph_pes.graphs import DEFAULT_CUTOFF, AtomicGraph
+from graph_pes.core import GraphPESModel
+from graph_pes.graphs import DEFAULT_CUTOFF, AtomicGraph, keys
 from graph_pes.graphs.operations import (
     neighbour_distances,
     neighbour_vectors,
     number_of_atoms,
     number_of_edges,
 )
+from graph_pes.models.components.scaling import LocalEnergiesScaler
 from graph_pes.nn import (
     MLP,
     HaddamardProduct,
@@ -319,7 +320,50 @@ class ScalarOutput(nn.Module):
         return self.mlp(X)  # (N, 1)
 
 
-class TensorNet(LocalEnergyModel):
+class TensorNet(GraphPESModel):
+    r"""
+    The `TensorNet <http://arxiv.org/abs/2306.06482>`_ model.
+
+    Citation:
+
+    .. code:: bibtex
+
+        @misc{Simeon-23-06,
+            title = {
+                TensorNet: Cartesian Tensor Representations for
+                Efficient Learning of Molecular Potentials
+            },
+            author = {Simeon, Guillem and {de Fabritiis}, Gianni},
+            year = {2023},
+            number = {arXiv:2306.06482},
+        }
+
+    Parameters
+    ----------
+    cutoff
+        The cutoff radius to use for the model.
+    radial_features
+        The number of radial features to use for the model.
+    embedding_size
+        The size of the embedding for each atom.
+    layers
+        The number of interaction layers to use for the model.
+
+    Examples
+    --------
+
+    Configure a TensorNet model for use with ``graph-pes-train``:
+
+    .. code:: yaml
+
+        model:
+          graph_pes.models.TensorNet:
+            radial_features: 32
+            embedding_size: 32
+            layers: 2
+            cutoff: 5.0
+    """
+
     def __init__(
         self,
         cutoff: float = DEFAULT_CUTOFF,
@@ -327,16 +371,24 @@ class TensorNet(LocalEnergyModel):
         embedding_size: int = 32,
         layers: int = 2,
     ):
-        super().__init__(cutoff, auto_scale=True)
+        super().__init__(
+            cutoff=cutoff,
+            implemented_properties=["local_energies"],
+        )
         self.embedding = Embedding(radial_features, embedding_size, cutoff)
         self.interactions = UniformModuleList(
             Interaction(radial_features, embedding_size, cutoff)
             for _ in range(layers)
         )
         self.read_out = ScalarOutput(embedding_size)
+        self.scaler = LocalEnergiesScaler()
 
-    def predict_raw_energies(self, graph: AtomicGraph):
+    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, torch.Tensor]:
         X = self.embedding(graph)  # (N, C, 3, 3)
         for interaction in self.interactions:
             X = interaction(X, graph) + X  # residual connection
-        return self.read_out(X)  # (N, 1)
+
+        local_energies = self.read_out(X).squeeze()
+        local_energies = self.scaler(local_energies, graph)
+
+        return {"local_energies": local_energies}

@@ -6,14 +6,15 @@ import e3nn.util.jit
 import graph_pes.models.components.distances
 import torch
 from e3nn import o3
-from graph_pes.core import LocalEnergyModel
-from graph_pes.graphs import DEFAULT_CUTOFF
+from graph_pes.core import GraphPESModel
+from graph_pes.graphs import DEFAULT_CUTOFF, keys
 from graph_pes.graphs.graph_typing import AtomicGraph
 from graph_pes.graphs.operations import neighbour_distances, neighbour_vectors
 from graph_pes.models.components.distances import (
     DistanceExpansion,
     PolynomialEnvelope,
 )
+from graph_pes.models.components.scaling import LocalEnergiesScaler
 from graph_pes.models.e3nn.utils import LinearReadOut, NonLinearReadOut, ReadOut
 from graph_pes.nn import (
     AtomicOneHot,
@@ -32,7 +33,7 @@ def _get_distance_expansion(name: str) -> type[DistanceExpansion]:
 
 
 @e3nn.util.jit.compile_mode("script")
-class _BaseMACE(LocalEnergyModel):
+class _BaseMACE(GraphPESModel):
     """
     Base class for MACE models.
     """
@@ -54,7 +55,10 @@ class _BaseMACE(LocalEnergyModel):
         neighbour_scaling: float,
         use_self_connection: bool,
     ):
-        super().__init__(cutoff=cutoff, auto_scale=True)
+        super().__init__(
+            cutoff=cutoff,
+            implemented_properties=["local_energies"],
+        )
 
         if isinstance(radial_expansion_type, str):
             radial_expansion_type = _get_distance_expansion(
@@ -92,7 +96,9 @@ class _BaseMACE(LocalEnergyModel):
             + [NonLinearReadOut(hidden_irreps)]
         )
 
-    def predict_raw_energies(self, graph: AtomicGraph) -> torch.Tensor:
+        self.scaler = LocalEnergiesScaler()
+
+    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, torch.Tensor]:
         vectors = neighbour_vectors(graph)
         Z_embedding = self.z_embedding(graph["atomic_numbers"])
 
@@ -112,7 +118,12 @@ class _BaseMACE(LocalEnergyModel):
             )
             per_atom_energies.append(readout(node_features))
 
-        return torch.sum(torch.stack(per_atom_energies), dim=0)
+        local_energies = torch.sum(
+            torch.stack(per_atom_energies), dim=0
+        ).squeeze()
+        local_energies = self.scaler(local_energies, graph)
+
+        return {"local_energies": local_energies}
 
 
 @e3nn.util.jit.compile_mode("script")

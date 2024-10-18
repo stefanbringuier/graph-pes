@@ -6,7 +6,7 @@ from typing import Optional
 import torch
 from torch import Tensor
 
-from graph_pes.core import LocalEnergyModel
+from graph_pes.core import GraphPESModel
 from graph_pes.graphs import (
     DEFAULT_CUTOFF,
     AtomicGraph,
@@ -22,7 +22,7 @@ from graph_pes.nn import PerElementParameter
 from graph_pes.util import to_significant_figures, uniform_repr
 
 
-class PairPotential(LocalEnergyModel, ABC):
+class PairPotential(GraphPESModel, ABC):
     r"""
     An abstract base class for PES models that calculate system energy as
     a sum over pairwise interactions:
@@ -40,6 +40,12 @@ class PairPotential(LocalEnergyModel, ABC):
 
     Subclasses should implement :meth:`interaction`.
     """
+
+    def __init__(self, cutoff: float):
+        super().__init__(
+            cutoff=cutoff,
+            implemented_properties=["local_energies"],
+        )
 
     @abstractmethod
     def interaction(
@@ -64,7 +70,7 @@ class PairPotential(LocalEnergyModel, ABC):
             The pair-wise interactions.
         """
 
-    def predict_raw_energies(self, graph: AtomicGraph) -> Tensor:
+    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, Tensor]:
         """
         Predict the local energies as half the sum of the pair-wise
         interactions that each atom participates in.
@@ -84,7 +90,7 @@ class PairPotential(LocalEnergyModel, ABC):
         energies = sum_over_neighbours(V.squeeze(), graph)
 
         # divide by 2 to avoid double counting
-        return energies / 2
+        return {keys.LOCAL_ENERGIES: energies / 2}
 
 
 class SmoothedPairPotential(PairPotential):
@@ -125,7 +131,7 @@ class SmoothedPairPotential(PairPotential):
         smoothing_onset: float | None = None,
     ):
         cutoff = potential.cutoff.item()
-        super().__init__(cutoff=cutoff, auto_scale=False)
+        super().__init__(cutoff=cutoff)
         if not smoothing_onset:
             smoothing_onset = 2 * cutoff / 3
         self.envelope = SmoothOnsetEnvelope(cutoff, smoothing_onset)
@@ -193,7 +199,7 @@ class LennardJones(PairPotential):
         sigma: float = 1.0,
         shift: bool = False,
     ):
-        super().__init__(cutoff=cutoff, auto_scale=False)
+        super().__init__(cutoff=cutoff)
 
         self._log_epsilon = torch.nn.Parameter(torch.tensor(epsilon).log())
         self._log_sigma = torch.nn.Parameter(torch.tensor(sigma).log())
@@ -230,7 +236,7 @@ class LennardJones(PairPotential):
         x = self.sigma / r
         return 4 * self.epsilon * (x**12 - x**6)
 
-    def model_specific_pre_fit(self, graphs: AtomicGraphBatch):
+    def pre_fit(self, graphs: AtomicGraphBatch):
         # set the distance at which the potential is zero to be
         # close to the minimum pair-wise distance
         d = torch.quantile(neighbour_distances(graphs), 0.01)
@@ -321,7 +327,7 @@ class Morse(PairPotential):
         a: float = 5.0,
         r0: float = 1.5,
     ):
-        super().__init__(cutoff=cutoff, auto_scale=False)
+        super().__init__(cutoff=cutoff)
 
         self._log_D = torch.nn.Parameter(torch.tensor(D).log())
         self._log_a = torch.nn.Parameter(torch.tensor(a).log())
@@ -359,7 +365,7 @@ class Morse(PairPotential):
         """
         return self.D * (1 - torch.exp(-self.a * (r - self.r0))) ** 2
 
-    def model_specific_pre_fit(self, graphs: AtomicGraphBatch):
+    def pre_fit(self, graphs: AtomicGraphBatch):
         # set the center of the well to be close to the minimum pair-wise
         # distance: the 10th percentile plus a small offset
         d = torch.quantile(neighbour_distances(graphs), 0.1) + 0.1
@@ -402,7 +408,7 @@ class LennardJonesMixture(PairPotential):
         cutoff: float = DEFAULT_CUTOFF,
         modulate_distances: bool = True,
     ):
-        super().__init__(cutoff=cutoff, auto_scale=False)
+        super().__init__(cutoff=cutoff)
 
         self.modulate_distances: Tensor
         self.register_buffer(

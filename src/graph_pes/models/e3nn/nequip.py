@@ -9,9 +9,9 @@ import e3nn.nn
 import e3nn.util.jit
 import torch
 from e3nn import o3
-from graph_pes.core import LocalEnergyModel
-from graph_pes.graphs import DEFAULT_CUTOFF
-from graph_pes.graphs.graph_typing import AtomicGraph, LabelledBatch
+from graph_pes.core import GraphPESModel
+from graph_pes.graphs import DEFAULT_CUTOFF, keys
+from graph_pes.graphs.graph_typing import AtomicGraph
 from graph_pes.graphs.operations import (
     index_over_neighbours,
     neighbour_distances,
@@ -22,6 +22,7 @@ from graph_pes.models.components.aggregation import (
     NeighbourAggregation,
     NeighbourAggregationMode,
 )
+from graph_pes.models.components.scaling import LocalEnergiesScaler
 from graph_pes.models.e3nn.utils import LinearReadOut
 from graph_pes.nn import (
     MLP,
@@ -223,7 +224,7 @@ class NequIPMessagePassingLayer(torch.nn.Module):
         n_channels: list[int],
         cutoff: float,
         self_interaction: Literal["linear", "tensor_product"] | None,
-        is_last_layer: bool,
+        prune_weights: bool,
         neighbour_aggregation: NeighbourAggregationMode,
     ):
         super().__init__()
@@ -274,7 +275,7 @@ class NequIPMessagePassingLayer(torch.nn.Module):
         post_message_irreps: list[o3.Irrep] = sorted(
             set(i.ir for i in self.message_tensor_product.irreps_out)
         )
-        if not is_last_layer:
+        if not prune_weights:
             desired_output_irreps = o3.Irreps(
                 [(n_channels[ir.l], ir) for ir in post_message_irreps]
             )
@@ -308,7 +309,7 @@ class NequIPMessagePassingLayer(torch.nn.Module):
 
         # bookkeeping
         self.irreps_in = input_node_irreps
-        self.irreps_out = self.non_linearity.irreps_out
+        self.irreps_out: o3.Irreps = self.non_linearity.irreps_out
 
     def forward(
         self,
@@ -361,9 +362,10 @@ class NequIPMessagePassingLayer(torch.nn.Module):
 
 
 @e3nn.util.jit.compile_mode("script")
-class _BaseNequIP(LocalEnergyModel):
+class _BaseNequIP(GraphPESModel):
     def __init__(
         self,
+        direct_force_predictions: bool,
         Z_embedding: torch.nn.Module,
         Z_embedding_dim: int,
         n_channels: int | list[int],
@@ -375,7 +377,14 @@ class _BaseNequIP(LocalEnergyModel):
         prune_last_layer: bool,
         neighbour_aggregation: NeighbourAggregationMode,
     ):
-        super().__init__(cutoff=cutoff, auto_scale=True)
+        props: list[keys.LabelKey] = ["local_energies"]
+        if direct_force_predictions:
+            props.append("forces")
+
+        super().__init__(
+            cutoff=cutoff,
+            implemented_properties=props,
+        )
 
         if isinstance(n_channels, int):
             n_channels = [n_channels] * (l_max + 1)
@@ -397,28 +406,36 @@ class _BaseNequIP(LocalEnergyModel):
 
         # first layer recieves an even parity, scalar embedding
         # of the atomic number
-        current_layer_input = o3.Irreps(f"{n_channels[0]}x0e")
+        current_layer_input: o3.Irreps = o3.Irreps(f"{n_channels[0]}x0e")  # type: ignore
         layers: list[NequIPMessagePassingLayer] = []
         for i in range(n_layers):
             layer = NequIPMessagePassingLayer(
-                input_node_irreps=current_layer_input,  # type: ignore
+                input_node_irreps=current_layer_input,
                 edge_irreps=edge_embedding_irreps,  # type: ignore
                 l_max=l_max,
                 n_channels=n_channels,
                 cutoff=cutoff,
                 Z_embedding_dim=Z_embedding_dim,
                 self_interaction=self_interaction,
-                is_last_layer=i == n_layers - 1 and prune_last_layer,
+                prune_weights=i == n_layers - 1
+                and prune_last_layer
+                and not direct_force_predictions,
                 neighbour_aggregation=neighbour_aggregation,
             )
             layers.append(layer)
             current_layer_input = layer.irreps_out
 
         self.layers = UniformModuleList(layers)
+        self.energy_readout = LinearReadOut(current_layer_input)
 
-        self.readout = LinearReadOut(current_layer_input)  # type: ignore
+        if direct_force_predictions:
+            self.force_readout = LinearReadOut(current_layer_input, "1o")
+        else:
+            self.force_readout = None
 
-    def predict_raw_energies(self, graph: AtomicGraph) -> Tensor:
+        self.scaler = LocalEnergiesScaler()
+
+    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, torch.Tensor]:
         # pre-compute important quantities
         r = neighbour_distances(graph)
         Y = self.edge_embedding(neighbour_vectors(graph))
@@ -431,12 +448,17 @@ class _BaseNequIP(LocalEnergyModel):
         for layer in self.layers:
             node_embed = layer(node_embed, Z_embed, r, Y, graph)
 
-        # ...and read out the energy
-        return self.readout(node_embed)
+        # ...and read out
+        local_energies = self.energy_readout(node_embed).squeeze()
+        local_energies = self.scaler(local_energies, graph)
 
-    def model_specific_pre_fit(self, graphs: LabelledBatch) -> None:
-        for layer in self.layers:
-            layer.aggregation.pre_fit(graphs)
+        preds: dict[keys.LabelKey, torch.Tensor] = {
+            "local_energies": local_energies
+        }
+        if self.force_readout is not None:
+            preds["forces"] = self.force_readout(node_embed).squeeze()
+
+        return preds
 
 
 @e3nn.util.jit.compile_mode("script")
@@ -479,6 +501,11 @@ class NequIP(_BaseNequIP):
         elements you will encounter in both pre-training and fine-tuning are
         present in this list. (See :class:`~graph_pes.models.ZEmbeddingNequIP`
         for an alternative that allows for arbitrary atomic numbers.)
+    direct_force_predictions
+        Whether to predict forces directly. If ``True``, the model will output
+        forces (rather than infer them from the energy) using a
+        :class:`~graph_pes.models.e3nn.utils.LinearReadOut` to map the final
+        layer node embedding to a set of force predictions.
     cutoff
         The cutoff radius for the model.
     n_channels
@@ -510,8 +537,37 @@ class NequIP(_BaseNequIP):
         to un-physical discontinuities in the energy function as atoms enter and
         leave the cutoff radius of the model.
 
+
     Examples
     --------
+
+    The hidden layer and edge embedding irreps the model generates are
+    controlled by the combination of ``n_channels``, ``l_max`` and
+    ``allow_odd_parity``:
+
+    .. list-table::
+        :header-rows: 1
+
+        * - ``n_channels``
+          - ``l_max``
+          - ``allow_odd_parity``
+          - ``edge_irreps``
+          - ``hidden_irreps``
+        * - 8
+          - 2
+          - True
+          - ``1x0e + 1x1o + 1x2e``
+          - ``8x0e + 8x0o + 8x1e + 8x1o + 8x2e + 8x2o``
+        * - 8
+          - 2
+          - False
+          - ``1x0e + 1x1e + 1x2e``
+          - ``8x0e + 8x1e + 8x2e``
+        * - [16, 8, 4]
+          - 2
+          - False
+          - ``1x0e + 1x1e + 1x2e``
+          - ``16x0e + 16x1e + 16x2e``
 
     Configure a NequIP model for use with
     :doc:`graph-pes-train <../../cli/graph-pes-train>`:
@@ -572,6 +628,7 @@ class NequIP(_BaseNequIP):
     def __init__(
         self,
         elements: list[str],
+        direct_force_predictions: bool = False,
         cutoff: float = DEFAULT_CUTOFF,
         n_channels: int | list[int] = 16,
         n_layers: int = 3,
@@ -586,6 +643,7 @@ class NequIP(_BaseNequIP):
         Z_embedding = AtomicOneHot(elements)
         Z_embedding_dim = len(elements)
         super().__init__(
+            direct_force_predictions=direct_force_predictions,
             Z_embedding=Z_embedding,
             Z_embedding_dim=Z_embedding_dim,
             n_channels=n_channels,
@@ -621,6 +679,7 @@ class ZEmbeddingNequIP(_BaseNequIP):
     def __init__(
         self,
         cutoff: float = DEFAULT_CUTOFF,
+        direct_force_predictions: bool = False,
         Z_embed_dim: int = 8,
         n_channels: int | list[int] = 16,
         l_max: int = 2,
@@ -633,6 +692,7 @@ class ZEmbeddingNequIP(_BaseNequIP):
     ):
         Z_embedding = PerElementEmbedding(Z_embed_dim)
         super().__init__(
+            direct_force_predictions=direct_force_predictions,
             Z_embedding=Z_embedding,
             Z_embedding_dim=Z_embed_dim,
             n_channels=n_channels,

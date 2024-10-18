@@ -6,10 +6,7 @@ import torch
 
 from graph_pes.core import GraphPESModel
 from graph_pes.graphs import AtomicGraph, LabelledBatch, keys
-from graph_pes.graphs.operations import (
-    guess_per_element_mean_and_var,
-    sum_per_structure,
-)
+from graph_pes.graphs.operations import guess_per_element_mean_and_var
 from graph_pes.logger import logger
 from graph_pes.nn import PerElementParameter
 
@@ -31,37 +28,29 @@ class EnergyOffset(GraphPESModel):
 
     Parameters
     ----------
-    fixed_values
-        A dictionary of fixed energy offsets for each atomic species.
-    trainable
-        Whether the energy offsets are trainable parameters.
+    offsets
+        The energy offsets for each atomic species.
     """
 
     def __init__(self, offsets: PerElementParameter):
-        super().__init__(cutoff=0)
+        super().__init__(
+            cutoff=0,
+            implemented_properties=[
+                "local_energies",
+                "forces",
+                "stress",
+            ],
+        )
         self._offsets = offsets
 
-    def predict(
-        self,
-        graph: AtomicGraph,
-        properties: list[keys.LabelKey],
-        training: bool = False,
-    ) -> dict[keys.LabelKey, torch.Tensor]:
-        predictions: dict[keys.LabelKey, torch.Tensor] = {}
-
-        Z = graph["atomic_numbers"]
-        local_energies = self._offsets[Z].squeeze()
-        if "local_energies" in properties:
-            predictions["local_energies"] = local_energies
-        if "energy" in properties:
-            predictions["energy"] = sum_per_structure(local_energies, graph)
-
-        if "forces" in properties:
-            predictions["forces"] = torch.zeros_like(graph["_positions"])
-        if "stress" in properties:
-            predictions["stress"] = torch.zeros((3, 3), device=Z.device)
-
-        return predictions
+    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, torch.Tensor]:
+        return {
+            "local_energies": self._offsets[graph["atomic_numbers"]].squeeze(),
+            "forces": torch.zeros_like(graph["_positions"]),
+            "stress": torch.zeros(
+                (3, 3), device=graph["atomic_numbers"].device
+            ),
+        }
 
     def non_decayable_parameters(self) -> list[torch.nn.Parameter]:
         return [self._offsets]
@@ -113,12 +102,14 @@ class LearnableOffset(EnergyOffset):
     Estimate all relevant energy offsets from the training data:
 
     >>> model = LearnableOffset()
-    >>> model.pre_fit(training_data)  # estimates offsets from data
+    >>> # estimates offsets from data
+    >>> model.pre_fit_all_components(training_data)
 
     Specify some initial values for the energy offsets:
 
     >>> model = LearnableOffset(H=0.0, C=-3.0)
-    >>> model.pre_fit(training_data)  # estimates remaining offsets from data
+    >>> # estimate offsets for elements that aren't C or H
+    >>> model.pre_fit_all_components(training_data)
     """
 
     def __init__(self, **initial_values: float):
@@ -127,10 +118,11 @@ class LearnableOffset(EnergyOffset):
             requires_grad=True,
         )
         super().__init__(offsets)
+        # TODO: keep track of which where specified!
         self._values_were_specified = bool(initial_values)
 
     @torch.no_grad()
-    def model_specific_pre_fit(self, graphs: LabelledBatch) -> None:
+    def pre_fit(self, graphs: LabelledBatch) -> None:
         """
         Calculate the **mean** energy offsets per element from the training data
         using linear regression.

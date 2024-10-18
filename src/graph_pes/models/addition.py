@@ -46,16 +46,19 @@ class AdditionModel(GraphPESModel):
 
     def __init__(self, **models: GraphPESModel):
         max_cutoff = max([m.cutoff.item() for m in models.values()])
-        super().__init__(cutoff=max_cutoff)
+        implemented_properties = list(
+            set().union(*[m.implemented_properties for m in models.values()])
+        )
+        super().__init__(
+            cutoff=max_cutoff,
+            implemented_properties=implemented_properties,
+        )
         self.models = UniformModuleDict(**models)
 
-    def predict(
-        self,
-        graph: AtomicGraph,
-        properties: list[keys.LabelKey],
-    ) -> dict[keys.LabelKey, Tensor]:
+    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, Tensor]:
         device = graph["atomic_numbers"].device
         N = number_of_atoms(graph)
+
         if is_batch(graph):
             S = number_of_structures(graph)
             zeros = {
@@ -73,26 +76,23 @@ class AdditionModel(GraphPESModel):
             }
 
         predictions: dict[keys.LabelKey, Tensor] = {
-            k: zeros[k] for k in properties
+            k: zeros[k] for k in self.implemented_properties
         }
         for model in self.models.values():
             trimmed = trim_edges(graph, model.cutoff.item())
-            preds = model.predict(trimmed, properties)
-            for key in properties:
+            preds = model.predict(
+                trimmed, properties=self.implemented_properties
+            )
+            for key in self.implemented_properties:
                 predictions[key] += preds[key]
 
         return predictions
 
-    def pre_fit(self, graphs: LabelledGraphDataset | Sequence[LabelledGraph]):
+    def pre_fit_all_components(
+        self, graphs: LabelledGraphDataset | Sequence[LabelledGraph]
+    ):
         for model in self.models.values():
-            model.pre_fit(graphs)
-
-    def non_decayable_parameters(self) -> list[torch.nn.Parameter]:
-        return [
-            p
-            for model in self.models.values()
-            for p in model.non_decayable_parameters()
-        ]
+            model.pre_fit_all_components(graphs)
 
     def __repr__(self):
         return uniform_repr(

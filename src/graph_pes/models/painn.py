@@ -3,8 +3,8 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from graph_pes.core import LocalEnergyModel
-from graph_pes.graphs import DEFAULT_CUTOFF, AtomicGraph
+from graph_pes.core import GraphPESModel
+from graph_pes.graphs import DEFAULT_CUTOFF, AtomicGraph, keys
 from graph_pes.graphs.operations import (
     index_over_neighbours,
     neighbour_distances,
@@ -12,6 +12,7 @@ from graph_pes.graphs.operations import (
     number_of_atoms,
     sum_over_neighbours,
 )
+from graph_pes.models.components.scaling import LocalEnergiesScaler
 from graph_pes.nn import (
     MLP,
     HaddamardProduct,
@@ -158,7 +159,7 @@ class Update(nn.Module):
         return delta_v, delta_s
 
 
-class PaiNN(LocalEnergyModel):
+class PaiNN(GraphPESModel):
     r"""
     The `Polarizable Atom Interaction Neural Network (PaiNN)
     <https://arxiv.org/abs/2102.03150>`_ model.
@@ -172,8 +173,14 @@ class PaiNN(LocalEnergyModel):
     .. code-block:: bibtex
 
         @misc{Schutt-21-06,
-            title = {Equivariant Message Passing for the Prediction of Tensorial Properties and Molecular Spectra},
-            author = {Sch{\"u}tt, Kristof T. and Unke, Oliver T. and Gastegger, Michael},
+            title = {
+                Equivariant Message Passing for the Prediction
+                of Tensorial Properties and Molecular Spectra
+            },
+            author = {
+                Sch{\"u}tt, Kristof T. and Unke, Oliver T.
+                and Gastegger, Michael
+            },
             year = {2021},
             doi = {10.48550/arXiv.2102.03150},
         }
@@ -188,6 +195,19 @@ class PaiNN(LocalEnergyModel):
         The number of (interaction + update) layers to use.
     cutoff
         The cutoff distance for the radial features.
+
+    Examples
+    --------
+
+    Configure a PaiNN model for use with ``graph-pes-train``:
+
+    .. code:: yaml
+
+        model:
+          graph_pes.models.PaiNN:
+            internal_dim: 32
+            layers: 3
+            cutoff: 5.0
     """  # noqa: E501
 
     def __init__(
@@ -197,7 +217,10 @@ class PaiNN(LocalEnergyModel):
         layers: int = 3,
         cutoff: float = DEFAULT_CUTOFF,
     ):
-        super().__init__(cutoff=cutoff, auto_scale=True)
+        super().__init__(
+            cutoff=cutoff,
+            implemented_properties=["local_energies"],
+        )
 
         self.internal_dim = internal_dim
         self.z_embedding = PerElementEmbedding(internal_dim)
@@ -213,7 +236,9 @@ class PaiNN(LocalEnergyModel):
             activation=nn.SiLU(),
         )
 
-    def predict_raw_energies(self, graph: AtomicGraph) -> Tensor:
+        self.scaler = LocalEnergiesScaler()
+
+    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, Tensor]:
         # initialise embbedings:
         # - scalars as an embedding of the atomic numbers
         scalar_embeddings = self.z_embedding(graph["atomic_numbers"])
@@ -236,4 +261,8 @@ class PaiNN(LocalEnergyModel):
             scalar_embeddings = scalar_embeddings + delta_s
 
         # mlp read out
-        return self.read_out(scalar_embeddings)
+        local_energies = self.read_out(scalar_embeddings).squeeze()
+
+        # scaling
+        local_energies = self.scaler(local_energies, graph)
+        return {"local_energies": local_energies}

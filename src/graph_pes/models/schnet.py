@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import torch
 
-from graph_pes.core import LocalEnergyModel
-from graph_pes.graphs import DEFAULT_CUTOFF, AtomicGraph
+from graph_pes.core import GraphPESModel
+from graph_pes.graphs import DEFAULT_CUTOFF, AtomicGraph, keys
 from graph_pes.graphs.operations import (
     index_over_neighbours,
     neighbour_distances,
     sum_over_neighbours,
 )
+from graph_pes.models.components.scaling import LocalEnergiesScaler
 from graph_pes.nn import (
     MLP,
     PerElementEmbedding,
@@ -157,7 +158,7 @@ class SchNetInteraction(torch.nn.Module):
         return self.mlp(h)
 
 
-class SchNet(LocalEnergyModel):
+class SchNet(GraphPESModel):
     r"""
     The `SchNet <https://arxiv.org/abs/1706.08566>`_ model: a pairwise, scalar,
     message passing GNN.
@@ -206,7 +207,10 @@ class SchNet(LocalEnergyModel):
         layers: int = 3,
         expansion: type[DistanceExpansion] | None = None,
     ):
-        super().__init__(cutoff=cutoff, auto_scale=True)
+        super().__init__(
+            cutoff=cutoff,
+            implemented_properties=["local_energies"],
+        )
 
         if expansion is None:
             expansion = GaussianSmearing
@@ -225,14 +229,19 @@ class SchNet(LocalEnergyModel):
             activation=ShiftedSoftplus(),
         )
 
-    def predict_raw_energies(self, graph: AtomicGraph) -> torch.Tensor:
+        self.scaler = LocalEnergiesScaler()
+
+    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, torch.Tensor]:
         h = self.chemical_embedding(graph["atomic_numbers"])
         d = neighbour_distances(graph)
 
         for interaction in self.interactions:
             h = h + interaction(h, d, graph)
 
-        return self.read_out(h)
+        local_energies = self.read_out(h).squeeze()
+        local_energies = self.scaler(local_energies, graph)
+
+        return {"local_energies": local_energies}
 
     def __repr__(self) -> str:
         return uniform_repr(
@@ -240,5 +249,5 @@ class SchNet(LocalEnergyModel):
             chemical_embedding=self.chemical_embedding,
             interactions=self.interactions,
             read_out=self.read_out,
-            per_element_scaling=self.per_element_scaling,
+            scaler=self.scaler,
         )

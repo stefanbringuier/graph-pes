@@ -7,5 +7,7 @@ Building blocks
     distances
     envelopes
     aggregation
+    scaling
     nn
+    e3nn
     transforms
