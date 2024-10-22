@@ -95,6 +95,14 @@ def extract_config_from_command_line() -> Config:
             parsed_configs.append(nested_dict)
 
         else:
+            logger.error(
+                "We detected the following command line arguments: \n" "".join(
+                    f"- {arg}\n" for arg in args.args
+                )
+                + "We expected all of these to be in the form key=value or "
+                f"to end with .yaml or .yml - {arg} is invalid."
+            )
+
             raise ValueError(
                 f"Invalid argument: {arg}. "
                 "Expected a YAML file or an override in the form key=value"
@@ -146,17 +154,24 @@ def train_from_config(config: Config):
     # information from rank 0 to other ranks by saving information into files
     # in this directory.
 
+    communication_dir = Path(config.general.root_dir) / ".communication"
+
     # the config will be shared across all ranks, but will be different
     # between different training runs: hence a sha256 hash of the config
     # is a good unique identifier for the training run:
     training_run_id = config.hash()
-    training_run_dir = Path(".communication") / training_run_id
+    training_run_dir = communication_dir / training_run_id
     is_rank_0 = not training_run_dir.exists()
     training_run_dir.mkdir(exist_ok=True, parents=True)
 
     def cleanup():
         with contextlib.suppress(FileNotFoundError):
             shutil.rmtree(training_run_dir)
+
+        # also remove communication if empty
+        with contextlib.suppress(FileNotFoundError):
+            if not any(communication_dir.iterdir()):
+                shutil.rmtree(communication_dir)
 
     log = (lambda *args, **kwargs: None) if not is_rank_0 else logger.info
 
