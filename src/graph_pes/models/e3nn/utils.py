@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Union
+from typing import Any, Union, cast
 
 import e3nn.util.jit
 import torch
+import torch.fx
 from e3nn import o3
 
 
@@ -141,7 +142,7 @@ class SphericalHarmonics(o3.SphericalHarmonics):
 def build_limited_tensor_product(
     node_embedding_irreps: o3.Irreps,
     edge_embedding_irreps: o3.Irreps,
-    allowed_outputs: o3.Irreps,
+    allowed_outputs: list[o3.Irrep],
 ) -> o3.TensorProduct:
     # we want to build a tensor product that takes the:
     # - node embeddings of each neighbour (node_irreps_in)
@@ -190,7 +191,7 @@ def build_limited_tensor_product(
 
     # since many paths can lead to the same output irrep, we sort the
     # instructions so that the tensor product generates tensors in a
-    # simplified order, e.g. 32x0e + 16x1o, not 16x0e + 16x1o + 16x0e
+    # nice order, e.g. 32x0e + 16x1o, not 16x0e + 16x1o + 16x0e
     output_irreps = o3.Irreps(output_irreps)
     assert isinstance(output_irreps, o3.Irreps)
     output_irreps, permutation, _ = output_irreps.sort()
@@ -211,3 +212,13 @@ def build_limited_tensor_product(
         internal_weights=False,
         shared_weights=False,
     )
+
+
+def as_irreps(input: Any) -> o3.Irreps:
+    # util to precent checking isinstance(o3.Irreps) all the time
+    return cast(o3.Irreps, o3.Irreps(input))
+
+
+def to_full_irreps(n_features: int, irreps: list[o3.Irrep]) -> o3.Irreps:
+    # convert a list of irreps to a full irreps object
+    return as_irreps([(n_features, ir) for ir in irreps])
