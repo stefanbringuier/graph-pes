@@ -1,0 +1,9 @@
+- [ ] scripts
+- [ ] spec TODOs
+- [ ] kill manual training
+- [ ] ptl_utils -> util
+- [ ] torchscript tests everywhere
+- [ ] test model utils predict_energy etc.
+- [ ] delete this file
+- [ ] fix notebooks
+- [ ] pytorch helpers

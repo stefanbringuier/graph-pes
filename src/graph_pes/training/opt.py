@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import torch
-from graph_pes.core import GraphPESModel
+from graph_pes.graph_pes_model import GraphPESModel
 from graph_pes.models.offsets import LearnableOffset
-from graph_pes.util import contains_tensor, uniform_repr
+from graph_pes.utils.misc import contains_tensor, uniform_repr
 
 
 class Optimizer:
@@ -14,7 +14,7 @@ class Optimizer:
     The generated optimizer splits the parameters of the model into two groups:
 
     - "non-decayable" parameters, which are all parameters returned by the
-      :meth:`~graph_pes.core.GraphPESModel.non_decayable_parameters` method of
+      :meth:`~graph_pes.GraphPESModel.non_decayable_parameters` method of
       the model.
     - "normal" parameters, corresponding to the remaining model parameters.
 
@@ -30,7 +30,7 @@ class Optimizer:
 
         We use delayed instantiation of optimizers when configuring our training
         runs to allow for arbitrary changes to the model and its parameters
-        during the :class:`~graph_pes.core.GraphPESModel.pre_fit_all_components`
+        during the :class:`~graph_pes.GraphPESModel.pre_fit_all_components`
         method.
 
 

@@ -5,20 +5,20 @@ from typing import Iterator, Sequence
 
 import torch.utils.data
 
-from graph_pes.graphs import LabelledBatch, LabelledGraph
-from graph_pes.graphs.operations import to_batch
-
-from .dataset import LabelledGraphDataset, SequenceDataset
+from ..atomic_graph import AtomicGraph, to_batch
+from .datasets import GraphDataset, SequenceDataset
 
 
 class GraphDataLoader(torch.utils.data.DataLoader):
     r"""
-    A data loader for merging :class:`~graph_pes.graphs.AtomicGraph` objects
-    into :class:`~graph_pes.graphs.AtomicGraphBatch` objects.
+    A helper class for merging :class:`~graph_pes.AtomicGraph` objects
+    into a single batch, represented as another :class:`~graph_pes.AtomicGraph`
+    containing disjoint subgraphs per structure (see
+    :func:`~graph_pes.atomic_graph.to_batch`).
 
     Parameters
     ----------
-    dataset
+    dataset: GraphDataset | Sequence[AtomicGraph]
         The dataset to load.
     batch_size
         The batch size.
@@ -31,12 +31,12 @@ class GraphDataLoader(torch.utils.data.DataLoader):
 
     def __init__(
         self,
-        dataset: LabelledGraphDataset | Sequence[LabelledGraph],
+        dataset: GraphDataset | Sequence[AtomicGraph],
         batch_size: int = 1,
         shuffle: bool = False,
         **kwargs,
     ):
-        if not isinstance(dataset, LabelledGraphDataset):
+        if not isinstance(dataset, GraphDataset):
             dataset = SequenceDataset(dataset)
 
         if "collate_fn" in kwargs:
@@ -56,5 +56,5 @@ class GraphDataLoader(torch.utils.data.DataLoader):
             **kwargs,
         )
 
-    def __iter__(self) -> Iterator[LabelledBatch]:  # type: ignore
+    def __iter__(self) -> Iterator[AtomicGraph]:  # type: ignore
         return super().__iter__()

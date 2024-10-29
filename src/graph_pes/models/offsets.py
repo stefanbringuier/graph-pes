@@ -3,12 +3,13 @@ from __future__ import annotations
 import warnings
 
 import torch
+from ase.data import atomic_numbers
 
-from graph_pes.core import GraphPESModel
-from graph_pes.graphs import AtomicGraph, LabelledBatch, keys
-from graph_pes.graphs.operations import guess_per_element_mean_and_var
-from graph_pes.logger import logger
-from graph_pes.nn import PerElementParameter
+from graph_pes.atomic_graph import AtomicGraph, PropertyKey
+from graph_pes.graph_pes_model import GraphPESModel
+from graph_pes.utils.logger import logger
+from graph_pes.utils.nn import PerElementParameter
+from graph_pes.utils.shift_and_scale import guess_per_element_mean_and_var
 
 
 class EnergyOffset(GraphPESModel):
@@ -43,16 +44,15 @@ class EnergyOffset(GraphPESModel):
         )
         self._offsets = offsets
 
-    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, torch.Tensor]:
+    def forward(self, graph: AtomicGraph) -> dict[PropertyKey, torch.Tensor]:
         return {
-            "local_energies": self._offsets[graph["atomic_numbers"]].squeeze(),
-            "forces": torch.zeros_like(graph["_positions"]),
-            "stress": torch.zeros(
-                (3, 3), device=graph["atomic_numbers"].device
-            ),
+            "local_energies": self._offsets[graph.Z].squeeze(),
+            "forces": torch.zeros_like(graph.R),
+            "stress": torch.zeros_like(graph.cell),
         }
 
     def non_decayable_parameters(self) -> list[torch.nn.Parameter]:
+        """The ``_offsets`` parameter should not be decayed."""
         return [self._offsets]
 
     def __repr__(self):
@@ -62,12 +62,14 @@ class EnergyOffset(GraphPESModel):
 class FixedOffset(EnergyOffset):
     """
     An :class:`~graph_pes.models.offsets.EnergyOffset` model with pre-defined
-    and fixed energy offsets for each element.
+    and fixed energy offsets for each element. These do not change during
+    training. Any element not specified in the ``final_values`` argument will
+    be assigned an energy offset of zero.
 
     Parameters
     ----------
     final_values
-        A dictionary of fixed energy offsets for each atomic species.
+        A dictionary mapping element symbols to fixed energy offset values.
 
     Examples
     --------
@@ -89,7 +91,8 @@ class LearnableOffset(EnergyOffset):
 
     During pre-fitting, for each element in the training data not specified by
     the user, the model will estimate the energy offset from the data using
-    ridge regression (see TODO)
+    ridge regression (see
+    :func:`~graph_pes.utils.shift_and_scale.guess_per_element_mean_and_var`).
 
     Parameters
     ----------
@@ -118,11 +121,15 @@ class LearnableOffset(EnergyOffset):
             requires_grad=True,
         )
         super().__init__(offsets)
-        # TODO: keep track of which where specified!
-        self._values_were_specified = bool(initial_values)
+
+        Zs = torch.tensor(
+            [atomic_numbers[symbol] for symbol in initial_values],
+            dtype=torch.long,
+        )
+        self.register_buffer("_pre_specified_Zs", Zs)
 
     @torch.no_grad()
-    def pre_fit(self, graphs: LabelledBatch) -> None:
+    def pre_fit(self, graphs: AtomicGraph) -> None:
         """
         Calculate the **mean** energy offsets per element from the training data
         using linear regression.
@@ -136,14 +143,8 @@ class LearnableOffset(EnergyOffset):
         graphs
             The training data.
         """
-        if self._values_were_specified:
-            logger.debug(
-                "Energy offsets were specified by the user. "
-                "Skipping the calculation of mean energy offsets."
-            )
-            return
 
-        if "energy" not in graphs:
+        if "energy" not in graphs.properties:
             warnings.warn(
                 "No energy labels found in the training data. "
                 "Can't guess suitable per-element energy offsets for "
@@ -154,8 +155,12 @@ class LearnableOffset(EnergyOffset):
 
         # use ridge regression to estimate the mean energy contribution
         # from each atomic species
-        offsets, _ = guess_per_element_mean_and_var(graphs["energy"], graphs)
+        offsets, _ = guess_per_element_mean_and_var(
+            graphs.properties["energy"], graphs
+        )
         for z, offset in offsets.items():
+            if torch.any(self._pre_specified_Zs == z):
+                continue
             self._offsets[z] = offset
 
         logger.warning(f"""

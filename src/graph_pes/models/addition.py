@@ -3,25 +3,28 @@ from __future__ import annotations
 from typing import Sequence
 
 import torch
-from torch import Tensor
 
-from graph_pes.core import GraphPESModel
-from graph_pes.data.dataset import LabelledGraphDataset
-from graph_pes.graphs import AtomicGraph, LabelledGraph, keys
-from graph_pes.graphs.operations import (
+from graph_pes.atomic_graph import (
+    AtomicGraph,
+    PropertyKey,
+    has_cell,
     is_batch,
     number_of_atoms,
     number_of_structures,
-    trim_edges,
 )
-from graph_pes.nn import UniformModuleDict
-from graph_pes.util import uniform_repr
+from graph_pes.data.datasets import GraphDataset
+from graph_pes.graph_pes_model import GraphPESModel
+from graph_pes.utils.misc import uniform_repr
+from graph_pes.utils.nn import UniformModuleDict
 
 
 class AdditionModel(GraphPESModel):
     """
-    A wrapper that makes predictions as the sum of the predictions
-    of its constituent models.
+    A utility class for combining the predictions of multiple models.
+
+    This is particularly useful for e.g. combining an many-body model with an
+    :class:`~graph_pes.models.offsets.EnergyOffset` model to account for the
+    arbitrary per-atom energy offsets produced by labelling codes.
 
     Parameters
     ----------
@@ -55,8 +58,8 @@ class AdditionModel(GraphPESModel):
         )
         self.models = UniformModuleDict(**models)
 
-    def forward(self, graph: AtomicGraph) -> dict[keys.LabelKey, Tensor]:
-        device = graph["atomic_numbers"].device
+    def forward(self, graph: AtomicGraph) -> dict[PropertyKey, torch.Tensor]:
+        device = graph.Z.device
         N = number_of_atoms(graph)
 
         if is_batch(graph):
@@ -64,32 +67,38 @@ class AdditionModel(GraphPESModel):
             zeros = {
                 "energy": torch.zeros((S), device=device),
                 "forces": torch.zeros((N, 3), device=device),
-                "stress": torch.zeros((S, 3, 3), device=device),
                 "local_energies": torch.zeros((N), device=device),
             }
         else:
             zeros = {
                 "energy": torch.zeros((), device=device),
                 "forces": torch.zeros((N, 3), device=device),
-                "stress": torch.zeros((3, 3), device=device),
                 "local_energies": torch.zeros((N), device=device),
             }
 
-        predictions: dict[keys.LabelKey, Tensor] = {
-            k: zeros[k] for k in self.implemented_properties
+        # only predict stresses if the graph has a cell!
+        # no list comprehension here due to TorchScript
+        properties: list[PropertyKey] = []
+        for prop in self.implemented_properties:
+            if prop != "stress":
+                properties.append(prop)
+
+        if has_cell(graph):
+            zeros["stress"] = torch.zeros_like(graph.cell)
+            properties.append("stress")
+
+        total_predictions: dict[PropertyKey, torch.Tensor] = {
+            k: zeros[k] for k in properties
         }
         for model in self.models.values():
-            trimmed = trim_edges(graph, model.cutoff.item())
-            preds = model.predict(
-                trimmed, properties=self.implemented_properties
-            )
-            for key in self.implemented_properties:
-                predictions[key] += preds[key]
+            preds = model.predict(graph, properties=properties)
+            for key, value in preds.items():
+                total_predictions[key] += value
 
-        return predictions
+        return total_predictions
 
     def pre_fit_all_components(
-        self, graphs: LabelledGraphDataset | Sequence[LabelledGraph]
+        self, graphs: GraphDataset | Sequence[AtomicGraph]
     ):
         for model in self.models.values():
             model.pre_fit_all_components(graphs)
@@ -100,6 +109,7 @@ class AdditionModel(GraphPESModel):
             **self.models,
             stringify=True,
             max_width=80,
+            indent_width=2,
         )
 
     def __getitem__(self, key: str) -> GraphPESModel:

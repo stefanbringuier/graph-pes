@@ -3,9 +3,9 @@ from __future__ import annotations
 import warnings
 
 import torch
-from graph_pes.graphs import AtomicGraph, LabelledBatch, keys
-from graph_pes.graphs.operations import guess_per_element_mean_and_var
-from graph_pes.nn import PerElementParameter
+from graph_pes.atomic_graph import AtomicGraph
+from graph_pes.utils.nn import PerElementParameter
+from graph_pes.utils.shift_and_scale import guess_per_element_mean_and_var
 from torch import nn
 
 
@@ -13,8 +13,8 @@ class LocalEnergiesScaler(nn.Module):
     """
     Scale the local energies by a per-element scaling factor.
 
-    See :func:`graph_pes.graphs.operations.guess_per_element_mean_and_var` for
-    how the scaling factors are estimated from the training data.
+    See :func:`~graph_pes.utils.shift_and_scale.guess_per_element_mean_and_var`
+    for how the scaling factors are estimated from the training data.
     """
 
     def __init__(self):
@@ -24,13 +24,20 @@ class LocalEnergiesScaler(nn.Module):
             default_value=1.0,
             requires_grad=True,
         )
+        """
+        The per-element scaling factors. 
+        (:class:`~graph_pes.utils.nn.PerElementParameter`)
+        """
 
     def forward(
         self,
         local_energies: torch.Tensor,
         graph: AtomicGraph,
     ) -> torch.Tensor:
-        scales = self.per_element_scaling[graph[keys.ATOMIC_NUMBERS]].squeeze()
+        """
+        Scale the local energies by the per-element scaling factor.
+        """
+        scales = self.per_element_scaling[graph.Z].squeeze()
         return local_energies * scales
 
     # add typing for mypy etc
@@ -40,16 +47,16 @@ class LocalEnergiesScaler(nn.Module):
         return super().__call__(local_energies, graph)
 
     @torch.no_grad()
-    def pre_fit(self, graphs: LabelledBatch):
+    def pre_fit(self, graphs: AtomicGraph):
         """
-        Pre-fit the output adapter to the training data.
+        Pre-fit the per-element scaling factors.
 
         Parameters
         ----------
         graphs
             The training data.
         """
-        if "energy" not in graphs:
+        if "energy" not in graphs.properties:
             warnings.warn(
                 "No energy data found in training data: can't estimate "
                 "per-element scaling factors for local energies.",
@@ -58,10 +65,14 @@ class LocalEnergiesScaler(nn.Module):
             return
 
         means, variances = guess_per_element_mean_and_var(
-            graphs["energy"], graphs
+            graphs.properties["energy"], graphs
         )
         for Z, var in variances.items():
             self.per_element_scaling[Z] = torch.sqrt(torch.tensor(var))
 
     def non_decayable_parameters(self) -> list[torch.nn.Parameter]:
+        """The ``per_element_scaling`` parameter should not be decayed."""
         return [self.per_element_scaling]
+
+    def __repr__(self):
+        return self.per_element_scaling._repr(alias=self.__class__.__name__)

@@ -9,7 +9,7 @@ import torch
 import torch.fx
 from e3nn import o3
 from e3nn.util.codegen import CodeGenMixin
-from graph_pes.nn import UniformModuleList
+from graph_pes.utils.nn import UniformModuleList
 
 BATCH_DIM_EG = 20
 SPARE = "wxvnzrtyuops"
@@ -203,7 +203,8 @@ class Contraction(CodeGenMixin, torch.nn.Module):
 
 
 _U_cache_sparse: dict[tuple[str, str, int], torch.Tensor] = torch.load(
-    Path(__file__).parent / "_high_order_CG_coeff.pt"
+    Path(__file__).parent / "_high_order_CG_coeff.pt",
+    weights_only=True,
 )
 """
 A pre-computed look-up table for the U matrices used in MACE Contractions.
