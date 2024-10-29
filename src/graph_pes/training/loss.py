@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, NamedTuple, Sequence
+from typing import Callable, Literal, NamedTuple, Sequence
 
 import torch
 from graph_pes.atomic_graph import AtomicGraph, PropertyKey, divide_per_atom
@@ -18,10 +18,10 @@ class Loss(nn.Module):
 
     Parameters
     ----------
-    property_key
+    property
         The property to apply the loss metric to.
     metric
-        The loss metric to use. Defaults to :class:`MAE`.
+        The loss metric to use. Defaults to :class:`RMSE`.
 
     Examples
     --------
@@ -38,12 +38,12 @@ class Loss(nn.Module):
 
     def __init__(
         self,
-        property_key: PropertyKey,
-        metric: Metric | None = None,
+        property: PropertyKey,
+        metric: Metric | Literal["MAE", "RMSE"] | None = None,
     ):
         super().__init__()
-        self.property_key: PropertyKey = property_key
-        self.metric = MAE() if metric is None else metric
+        self.property: PropertyKey = property
+        self.metric = parse_metric(metric)
 
     def forward(
         self,
@@ -62,14 +62,14 @@ class Loss(nn.Module):
         """
 
         return self.metric(
-            predictions[self.property_key],
-            graphs.properties[self.property_key],
+            predictions[self.property],
+            graphs.properties[self.property],
         )
 
     @property
     def name(self) -> str:
         """Get the name of this loss for logging purposes."""
-        return f"{self.property_key}_{_get_metric_name(self.metric)}"
+        return f"{self.property}_{_get_metric_name(self.metric)}"
 
     # add type hints to play nicely with mypy
     def __call__(
@@ -82,7 +82,7 @@ class Loss(nn.Module):
     def __repr__(self) -> str:
         return uniform_repr(
             self.__class__.__name__,
-            self.property_key,
+            self.property,
             metric=self.metric,
         )
 
@@ -219,6 +219,18 @@ class PerAtomEnergyLoss(Loss):
 
 
 ## METRICS ##
+
+
+def parse_metric(metric: Metric | Literal["MAE", "RMSE"] | None) -> Metric:
+    if isinstance(metric, str):
+        if metric not in ("MAE", "RMSE"):
+            raise ValueError(
+                f"Invalid metric: {metric}. Expected 'MAE' or 'RMSE'."
+            )
+        metric = MAE() if metric == "MAE" else RMSE()
+    if metric is None:
+        metric = RMSE()
+    return metric
 
 
 class RMSE(torch.nn.MSELoss):

@@ -166,6 +166,8 @@ class FittingConfig(FittingOptions):
 
     scheduler: Union[str, Dict[str, Any], None]
     """
+    .. _learning rate scheduler:
+    
     Specification for the learning rate scheduler. Optional.
     Default is to have no learning rate schedule (``None``).
 
@@ -186,6 +188,8 @@ class FittingConfig(FittingOptions):
     Optional, defaults to ``None``.
 
     .. dropdown:: ``swa`` options
+
+        .. _stochastic weight averaging:
 
         .. autoclass:: graph_pes.config.config.SWAConfig()
             :members:
@@ -341,7 +345,7 @@ class Config:
             # or more fine-grained control
             loss:
                 graph_pes.training.loss.Loss:
-                    property_key: energy
+                    property: energy
                     metric: graph_pes.training.loss.RMSE()
 
         ...or specify a list of :class:`~graph_pes.config.config.LossSpec`
@@ -352,11 +356,11 @@ class Config:
         
             loss:
                 - component: graph_pes.training.loss.Loss:
-                      property_key: energy
+                      property: energy
                       metric: graph_pes.training.loss.RMSE()
                   weight: 1.0
                 - component: graph_pes.training.loss.Loss:
-                      property_key: forces
+                      property: forces
                       metric: graph_pes.training.loss.MAE()
                 weight: 10.0
         
@@ -516,7 +520,6 @@ class Config:
         return result
 
     def instantiate_loss(self) -> TotalLoss:
-        # TODO: simplify
         if isinstance(self.loss, (str, dict)):
             loss = create_from_data(self.loss)
             if isinstance(loss, Loss):
@@ -524,19 +527,30 @@ class Config:
             elif isinstance(loss, TotalLoss):
                 return loss
             else:
-                raise ValueError("# TODO")
+                raise ValueError(
+                    "Expected to parse a Loss or TotalLoss instance from the "
+                    "loss config, but got something else: {loss}"
+                )
 
-        else:
-            if not all(isinstance(l, LossSpec) for l in self.loss):
-                raise ValueError("# TODO")
+        if not all(isinstance(l, LossSpec) for l in self.loss):
+            raise ValueError(
+                "Expected a list of LossSpec instances from the loss config, "
+                f"but got {self.loss}."
+            )
 
-            weights = [l.weight for l in self.loss]
-            losses = [create_from_data(l.component) for l in self.loss]
+        weights = [l.weight for l in self.loss]
+        losses = [create_from_data(l.component) for l in self.loss]
 
-            if not all(isinstance(w, (int, float)) for w in weights):
-                raise ValueError("# TODO")
+        if not all(isinstance(w, (int, float)) for w in weights):
+            raise ValueError(
+                "Expected a list of weights from the loss config, "
+                f"but got {weights}."
+            )
 
-            if not all(isinstance(l, Loss) for l in losses):
-                raise ValueError("# TODO")
+        if not all(isinstance(l, Loss) for l in losses):
+            raise ValueError(
+                "Expected a list of Loss instances from the loss config, "
+                f"but got {losses}."
+            )
 
-            return TotalLoss(losses, weights)
+        return TotalLoss(losses, weights)

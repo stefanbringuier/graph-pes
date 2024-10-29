@@ -14,7 +14,7 @@ from graph_pes.atomic_graph import (
 )
 from graph_pes.data.datasets import GraphDataset
 from graph_pes.graph_pes_model import GraphPESModel
-from graph_pes.utils.misc import uniform_repr
+from graph_pes.utils.misc import all_equal, uniform_repr
 from graph_pes.utils.nn import UniformModuleDict
 
 
@@ -58,7 +58,18 @@ class AdditionModel(GraphPESModel):
         )
         self.models = UniformModuleDict(**models)
 
-    def forward(self, graph: AtomicGraph) -> dict[PropertyKey, torch.Tensor]:
+        self.register_buffer(
+            "_all_models_same_properties",
+            torch.tensor(
+                all_equal(
+                    [set(m.implemented_properties) for m in models.values()]
+                )
+            ),
+        )
+
+    def predict(
+        self, graph: AtomicGraph, properties: list[PropertyKey]
+    ) -> dict[PropertyKey, torch.Tensor]:
         device = graph.Z.device
         N = number_of_atoms(graph)
 
@@ -76,13 +87,6 @@ class AdditionModel(GraphPESModel):
                 "local_energies": torch.zeros((N), device=device),
             }
 
-        # only predict stresses if the graph has a cell!
-        # no list comprehension here due to TorchScript
-        properties: list[PropertyKey] = []
-        for prop in self.implemented_properties:
-            if prop != "stress":
-                properties.append(prop)
-
         if has_cell(graph):
             zeros["stress"] = torch.zeros_like(graph.cell)
             properties.append("stress")
@@ -90,12 +94,27 @@ class AdditionModel(GraphPESModel):
         total_predictions: dict[PropertyKey, torch.Tensor] = {
             k: zeros[k] for k in properties
         }
+
         for model in self.models.values():
             preds = model.predict(graph, properties=properties)
             for key, value in preds.items():
                 total_predictions[key] += value
 
         return total_predictions
+
+    def forward(self, graph: AtomicGraph) -> dict[PropertyKey, torch.Tensor]:
+        if not self._all_models_same_properties.item():
+            raise ValueError(
+                "The forward pass of an AdditionModel is not supported for "
+                "models with different implemented properties. "
+                "Consider using the predict method instead."
+            )
+
+        predictions = [model(graph) for model in self.models.values()]
+        return {
+            k: torch.stack([p[k] for p in predictions]).sum(dim=0)
+            for k in predictions[0]
+        }
 
     def pre_fit_all_components(
         self, graphs: GraphDataset | Sequence[AtomicGraph]

@@ -80,18 +80,21 @@ def train_with_lightning(
     task = LearnThePES(model, loss, optimizer, scheduler)
 
     # - train the model
+    error = None
     try:
         trainer.fit(task, train_loader, valid_loader)
     except Exception as e:
         logger.error(f"Training failed: {e}")
-        pass
+        error = e
 
     # - load the best weights
     try:
         task.load_best_weights(model, trainer)
     except Exception as e:
         logger.error(f"Failed to load best weights: {e}")
-        pass
+        if error is None:
+            error = e
+        raise error from None
 
 
 class LearnThePES(pl.LightningModule):
@@ -108,7 +111,7 @@ class LearnThePES(pl.LightningModule):
         self.scheduler_factory = scheduler
         self.total_loss = loss
         self.properties: list[PropertyKey] = [
-            component.property_key for component in self.total_loss.losses
+            component.property for component in self.total_loss.losses
         ]
 
         # TODO: we want to base this on actually available data
@@ -145,7 +148,7 @@ class LearnThePES(pl.LightningModule):
             return self.log(
                 f"{prefix}/{name}",
                 value,
-                prog_bar=prefix == "valid" and "loss" in name,
+                prog_bar=prefix == "valid" and "metric" in name,
                 on_step=prefix == "train",
                 on_epoch=prefix == "valid",
                 sync_dist=prefix == "valid",

@@ -11,6 +11,7 @@
     :caption: CLI Reference
 
     cli/graph-pes-train
+    cli/graph-pes-id
 
 .. toctree::
     :maxdepth: 4
@@ -67,16 +68,17 @@ A 3-in-1 toolset:
    This includes:
 
    - a data pipeline for turning :class:`ase.Atoms` objects into :class:`~graph_pes.AtomicGraph` objects
-   - a set of operations for common tasks on :class:`~graph_pes.AtomicGraph` objects, including edge-trimming, neighbour indexing and summations, and batching
+   - a set of operations for common tasks on :class:`~graph_pes.AtomicGraph` objects, including :func:`edge-trimming <graph_pes.atomic_graph.trim_edges>`, :func:`neighbour indexing <graph_pes.atomic_graph.index_over_neighbours>`, :func:`summations <graph_pes.atomic_graph.sum_over_neighbours>`, and :func:`batching <graph_pes.atomic_graph.to_batch>`,
    - a base class for all model of the potential energy surface (:class:`~graph_pes.GraphPESModel`) that automatically infers force and stress predictions if these are not provided by the model's implementation
    - reference implementations of popular models, including :class:`~graph_pes.models.NequIP`, :class:`~graph_pes.models.PaiNN`, :class:`~graph_pes.models.MACE` and :class:`~graph_pes.models.TensorNet`
-   - all written in vanilla ``PyTorch``, and 100% compatible with ``TorchScript`` compilation for use within LAMMPS
+   
+   ``graph_pes`` is written in vanilla ``PyTorch`` that is 100% compatible with ``TorchScript`` compilation for use within LAMMPS
 
 .. dropdown:: ``graph-pes-train``: a command line tool for training ML-PESs
 
    - get up and running quickly with sensible defaults to train new models from scratch
    - fine-tune existing models on new datasets
-   - easily configure advanced features such as distributed training, learning rate scheduling, and logging to `Weights & Biases <https://wandb.ai>`__
+   - easily configure advanced features such as :ref:`distributed training <multi-GPU training>`, :ref:`learning rate scheduling <learning rate scheduler>`, :ref:`stochastic weight averaging <stochastic weight averaging>`, and logging to `Weights & Biases <https://wandb.ai>`__
 
 .. dropdown:: ``pair_style graph_pes``: a LAMMPS pair style for GPU-accelerated MD
 
@@ -94,16 +96,26 @@ Open any of these notebooks to get started. Install ``graph-pes`` to follow alon
     .. grid-item-card::
         :text-align: center
 
-        .. button-ref:: quickstart/train-a-model
-            :ref-type: doc
+        .. button-link:: quickstart/quickstart.html#Train-a-model
             :click-parent:
+
+            Train a model
     
     .. grid-item-card::
         :text-align: center
 
-        .. button-ref:: quickstart/model-fine-tuning
-            :ref-type: doc
+        .. button-link:: quickstart/quickstart.html#Model-analysis
             :click-parent:
+
+            Analyse a model
+
+    .. grid-item-card::
+        :text-align: center
+
+        .. button-link:: quickstart/quickstart.html#Fine-tuning
+            :click-parent:
+
+            Fine-tune a model
 
     .. grid-item-card::
         :text-align: center
@@ -113,15 +125,6 @@ Open any of these notebooks to get started. Install ``graph-pes`` to follow alon
             :click-parent:
 
             Run LAMMPS MD
-
-    .. grid-item-card::
-        :text-align: center
-
-        .. button-ref:: quickstart/model-analysis
-            :ref-type: doc
-            :click-parent:
-
-            Analyse a model
 
     .. grid-item-card::
         :text-align: center
