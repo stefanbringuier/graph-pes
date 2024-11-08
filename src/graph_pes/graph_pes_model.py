@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from abc import ABC, abstractmethod
-from typing import Sequence
+from typing import Any, Final, Sequence, final
 
 import torch
 from ase.data import chemical_symbols
@@ -75,6 +75,15 @@ class GraphPESModel(nn.Module, ABC):
 
     For more details on how these are calculated, see :doc:`../theory`.
 
+    :class:`~graph_pes.GraphPESModel` objects save various peices of extra
+    metadata to the ``state_dict`` via the
+    :meth:`~graph_pes.GraphPESModel.get_extra_state` and
+    :meth:`~graph_pes.GraphPESModel.set_extra_state` methods.
+    If you want to save additional extra state to the ``state_dict`` of your
+    model, please implement the :meth:`~graph_pes.GraphPESModel.extra_state`
+    property and corresponding setter to ensure that you do not overwrite
+    these extra metadata items.
+
     Parameters
     ----------
     cutoff
@@ -91,12 +100,13 @@ class GraphPESModel(nn.Module, ABC):
     ):
         super().__init__()
 
+        self._GRAPH_PES_VERSION: Final[str] = "0.0.3"
+
         self.cutoff: torch.Tensor
         self.register_buffer("cutoff", torch.tensor(cutoff))
         self._has_been_pre_fit: torch.Tensor
         self.register_buffer("_has_been_pre_fit", torch.tensor(0))
 
-        # setup up the output enhancers
         self.implemented_properties = implemented_properties
         if "local_energies" not in implemented_properties:
             raise ValueError(
@@ -325,7 +335,7 @@ class GraphPESModel(nn.Module, ABC):
 
         1. iterates over all the model's :class:`~torch.nn.Module` components
            (inlcuding itself) and calls their :meth:`pre_fit` method (if it exists -
-           see for instance :class:`~graph_pes.models.pairwise.LennardJones` for
+           see for instance :class:`~graph_pes.models.LearnableOffset` for
            an example of a model-specific pre-fit method, and
            :class:`~graph_pes.models.components.scaling.LocalEnergiesScaler` for
            an example of a component-specific pre-fit method).
@@ -355,7 +365,8 @@ class GraphPESModel(nn.Module, ABC):
             model_name = self.__class__.__name__
             warnings.warn(
                 f"This model ({model_name}) has already been pre-fitted. "
-                "This, and any subsequent, call to pre_fit will be ignored.",
+                "This, and any subsequent, call to pre_fit_all_components will "
+                "be ignored.",
                 stacklevel=2,
             )
 
@@ -462,3 +473,64 @@ class GraphPESModel(nn.Module, ABC):
             if isinstance(param, PerElementParameter):
                 Zs.update(param._accessed_Zs)
         return [chemical_symbols[Z] for Z in sorted(Zs)]
+
+    @torch.jit.unused
+    @property
+    def device(self) -> torch.device:
+        return self.cutoff.device
+
+    @torch.jit.unused
+    @final
+    def get_extra_state(self) -> dict[str, Any]:
+        """
+        Get the extra state of this instance. Please override the
+        :meth:`~graph_pes.GraphPESModel.extra_state` property to add extra
+        state here.
+        """
+        return {
+            "_GRAPH_PES_VERSION": self._GRAPH_PES_VERSION,
+            "extra": self.extra_state,
+        }
+
+    @torch.jit.unused
+    @final
+    def set_extra_state(self, state: dict[str, Any]) -> None:
+        """
+        Set the extra state of this instance using a dictionary mapping strings
+        to values returned by the :meth:`~graph_pes.GraphPESModel.extra_state`
+        property setter to add extra state here.
+        """
+        version = state.pop("_GRAPH_PES_VERSION", None)
+        if version is not None:
+            current_version = self._GRAPH_PES_VERSION
+            if version != current_version:
+                warnings.warn(
+                    "You are attempting to load a state dict corresponding "
+                    f"to graph-pes version {version}, but the current version "
+                    f"of this model is {current_version}. This may cause "
+                    "errors when loading the model.",
+                    stacklevel=2,
+                )
+            self._GRAPH_PES_VERSION = version  # type: ignore
+
+        # user defined extra state
+        self.extra_state = state["extra"]
+
+    @torch.jit.unused
+    @property
+    def extra_state(self) -> dict[str, Any]:
+        """
+        Override this property to add extra state to the model's
+        ``state_dict``. Must return a dictionary mapping strings to values.
+        """
+        return {}
+
+    @torch.jit.unused
+    @extra_state.setter
+    def extra_state(self, state: dict[str, Any]) -> None:
+        """
+        Set the extra state of this instance using a dictionary mapping strings
+        to values returned by the :meth:`~graph_pes.GraphPESModel.extra_state`
+        property.
+        """
+        pass
