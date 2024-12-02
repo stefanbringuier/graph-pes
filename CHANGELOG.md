@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.0.7] - 2024-12-02
+
+### Added
 
 Allow the user to freeze parameters in models that they load (useful for e.g. fine-tuning).
 
