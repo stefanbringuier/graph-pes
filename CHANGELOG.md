@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.8] - 2024-12-04
+
 ### Added
 
 Support for `"virial"` property predictions, as well as `"stress"`.
