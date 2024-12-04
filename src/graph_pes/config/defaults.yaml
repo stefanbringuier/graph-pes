@@ -12,10 +12,7 @@ fitting:
     pre_fit_model: true
     max_n_pre_fit: 5_000
 
-    optimizer:
-        graph_pes.training.opt.Optimizer:
-            name: AdamW
-            lr: 0.001
+    optimizer: null # intentional : defaults to AdamW(lr=1e-3)
 
     # train for 100 epochs on the best device available
     trainer_kwargs:

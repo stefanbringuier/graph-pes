@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import shutil
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 
 import pytorch_lightning
@@ -13,7 +14,6 @@ from graph_pes.config import Config, get_default_config_values
 from graph_pes.scripts.generation import config_auto_generation
 from graph_pes.training.callbacks import GraphPESCallback
 from graph_pes.training.trainer import create_trainer, train_with_lightning
-from graph_pes.utils.lammps import deploy_model
 from graph_pes.utils.logger import log_to_file, logger, set_level
 from graph_pes.utils.misc import (
     build_single_nested_dict,
@@ -56,17 +56,19 @@ def parse_args():
             "Config files and command line specifications. "
             "Config files should be YAML (.yaml/.yml) files. "
             "Command line specifications should be in the form "
-            "nested^key=value. "
+            "my/nested/key=value. "
             "Final config is built up from these items in a left "
             "to right manner, with later items taking precedence "
-            "over earlier ones in the case of conflicts."
+            "over earlier ones in the case of conflicts. "
+            "The data2objects package is used to resolve references "
+            "and create objects directly from the config dictionary."
         ),
     )
 
     return parser.parse_args()
 
 
-def extract_config_from_command_line() -> Config:
+def extract_config_from_command_line() -> dict:
     args = parse_args()
 
     # load default config
@@ -78,15 +80,24 @@ def extract_config_from_command_line() -> Config:
         parsed_configs.append(config_auto_generation())
 
     for arg in args.args:
+        arg: str
+
         if arg.endswith(".yaml") or arg.endswith(".yml"):
             # it's a config file
-            with open(arg) as f:
-                parsed_configs.append(yaml.safe_load(f))
+            try:
+                with open(arg) as f:
+                    parsed_configs.append(yaml.safe_load(f))
+            except Exception as e:
+                logger.error(
+                    f"You specified a config file ({arg}) "
+                    "that we couldn't load."
+                )
+                raise e
 
         elif "=" in arg:
             # it's an override
-            key, value = arg.split("=")
-            keys = key.split("^")
+            key, value = arg.split("=", maxsplit=1)
+            keys = key.split("/")
 
             # parse the value
             with contextlib.suppress(yaml.YAMLError):
@@ -109,11 +120,10 @@ def extract_config_from_command_line() -> Config:
                 "Expected a YAML file or an override in the form key=value"
             )
 
-    final_config_dict = nested_merge_all(defaults, *parsed_configs)
-    return Config.from_dict(final_config_dict)
+    return nested_merge_all(defaults, *parsed_configs)
 
 
-def train_from_config(config: Config):
+def train_from_config(config_data: dict):
     """
     Train a model from a configuration object.
 
@@ -155,12 +165,13 @@ def train_from_config(config: Config):
     # information from rank 0 to other ranks by saving information into files
     # in this directory.
 
+    config_data, config = Config.from_raw_config_dicts(config_data)
     communication_dir = Path(config.general.root_dir) / ".communication"
 
     # the config will be shared across all ranks, but will be different
     # between different training runs: hence a sha256 hash of the config
     # is a good unique identifier for the training run:
-    training_run_id = config.hash()
+    training_run_id = sha256(str(config_data).encode()).hexdigest()
     training_run_dir = communication_dir / training_run_id
     is_rank_0 = not training_run_dir.exists()
     training_run_dir.mkdir(exist_ok=True, parents=True)
@@ -225,9 +236,9 @@ def train_from_config(config: Config):
 
         output_dir.mkdir(parents=True)
         # save the config, but with the run ID updated
-        config.general.run_id = output_dir.name
+        config_data["general"]["run_id"] = output_dir.name
         with open(output_dir / "train-config.yaml", "w") as f:
-            yaml.dump(config.to_nested_dict(), f)
+            yaml.dump(config_data, f)
 
         # communicate the output directory by saving it to a file
         with open(training_run_dir / OUTPUT_DIR, "w") as f:
@@ -253,11 +264,7 @@ def train_from_config(config: Config):
     callbacks = trainer_kwargs.pop("callbacks", [])
     if config.fitting.swa is not None:
         callbacks.append(config.fitting.swa.instantiate_lightning_callback())
-    callbacks.extend(config.fitting.instantiate_callbacks())
-
-    for cb in callbacks:
-        if isinstance(cb, GraphPESCallback):
-            cb._register_root(output_dir)
+    callbacks.extend(config.fitting.callbacks)
 
     trainer = create_trainer(
         early_stopping_patience=config.fitting.early_stopping_patience,
@@ -268,8 +275,14 @@ def train_from_config(config: Config):
         progress=config.general.progress,
         callbacks=callbacks,
     )
+
+    actual_callbacks: list[pl.Callback] = trainer.callbacks  # type: ignore
+    for cb in actual_callbacks:
+        if isinstance(cb, GraphPESCallback):
+            cb._register_root(output_dir)
+
     assert trainer.logger is not None
-    trainer.logger.log_hyperparams(config.to_nested_dict())
+    trainer.logger.log_hyperparams(config_data)
 
     # route logs to a unique file for each rank: PTL now knows the global rank!
     log_to_file(file=output_dir / "logs" / f"rank-{trainer.global_rank}.log")
@@ -277,47 +290,19 @@ def train_from_config(config: Config):
     # instantiate and log things
     log(config)
 
-    model = config.instantiate_model()  # gets logged later
+    model = config.get_model()  # gets logged later
 
-    data = config.instantiate_data()
+    data = config.get_data()
     log(data)
 
-    optimizer = config.fitting.instantiate_optimizer()
+    optimizer = config.fitting.optimizer
     log(optimizer)
 
-    scheduler = config.fitting.instantiate_scheduler()
+    scheduler = config.fitting.scheduler
     log(scheduler if scheduler is not None else "No LR scheduler.")
 
-    total_loss = config.instantiate_loss()
+    total_loss = config.get_loss()
     log(total_loss)
-
-    def save_model():
-        if not is_rank_0:
-            return
-
-        try:
-            # place model onto cpu
-            nonlocal model
-            model = model.to("cpu")
-
-            # log the final path to the trainer.logger.summary
-            model_path = output_dir / "model.pt"
-            lammps_model_path = output_dir / "lammps_model.pt"
-
-            assert trainer.logger is not None
-            trainer.logger.log_hyperparams(
-                {
-                    "model_path": model_path,
-                    "lammps_model_path": lammps_model_path,
-                }
-            )
-            torch.save(model, model_path)
-            log(f"Model saved to {model_path}")
-            deploy_model(model, path=lammps_model_path)
-            log(f"Deployed model for use with LAMMPS to {lammps_model_path}")
-
-        except Exception as e:
-            logger.error(f"Failed to save model: {e}")
 
     logger.info(f"Starting training on rank {trainer.global_rank}.")
     try:
@@ -333,15 +318,11 @@ def train_from_config(config: Config):
 
     except Exception as e:
         cleanup()
-        save_model()
         logger.error(f"Training failed: {e}")
         raise e
 
     log("Training complete.")
-
-    save_model()
     cleanup()
-
     log(
         "Post-training cleanup complete. "
         "Awaiting final pytorch lightning shutdown..."

@@ -1,53 +1,58 @@
+general:
+    seed: 42
+    run_id: mace-c-gap-20u
+
+misc:
+    CUTOFF: 3.7
+
 model:
-    offset:
-        graph_pes.models.LearnableOffset: {}
+    offset: +LearnableOffset()
     core-repulsion:
-        graph_pes.models.ZBLCoreRepulsion:
+        +ZBLCoreRepulsion:
             trainable: true
-            cutoff: 3.7
+            cutoff: "!~/misc/CUTOFF"
     many-body:
-        graph_pes.models.MACE:
+        +MACE:
             elements: [C]
-            cutoff: 3.7
+            cutoff: "!~/misc/CUTOFF"
             channels: 128
             hidden_irreps: 0e + 1o
             self_connection: true
 
 data:
-    graph_pes.data.load_atoms_dataset:
+    +load_atoms_dataset:
         id: C-GAP-20U
-        cutoff: 3.7
+        cutoff: "!~/misc/CUTOFF"
         n_train: 5000
         n_valid: -1
         split: random
 
 loss:
-    - component: graph_pes.training.loss.PerAtomEnergyLoss()
-      weight: 1.0
+    - component: +PerAtomEnergyLoss()
     - component:
-        graph_pes.training.loss.Loss:
-            property: forces
-            metric: RMSE
+          +Loss:
+              property: forces
+              metric: RMSE
       weight: 3.0
 
 fitting:
     trainer_kwargs:
         max_epochs: 1000
         accelerator: gpu
-    
+
     callbacks:
-        - graph_pes.training.callbacks.DumpModel:
-            every_n_val_checks: 10
+        - +graph_pes.training.callbacks.DumpModel:
+              every_n_val_checks: 10
 
     early_stopping_patience: 50
 
     optimizer:
-        graph_pes.training.opt.Optimizer:
+        +Optimizer:
             name: AdamW
             lr: 0.003
 
     scheduler:
-        graph_pes.training.opt.LRScheduler:
+        +LRScheduler:
             name: ReduceLROnPlateau
             patience: 10
             factor: 0.8
@@ -55,7 +60,3 @@ fitting:
     loader_kwargs:
         batch_size: 32
         num_workers: 4
-
-general:
-    seed: 42
-    run_id: mace-c-gap-20u
