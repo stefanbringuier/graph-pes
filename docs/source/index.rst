@@ -167,4 +167,5 @@ Install ``graph-pes`` from PyPI using pip (installs all dependencies):
     pip install graph-pes
 
 
+Please see the `GitHub repository <https://github.com/jla-gardner/graph-pes>`__ for the source code.
 
