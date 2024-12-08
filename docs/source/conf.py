@@ -1,7 +1,7 @@
 project = "graph-pes"
 copyright = "2023-2024, John Gardner"
 author = "John Gardner"
-release = "0.0.10"
+release = "0.0.11"
 
 extensions = [
     "sphinx.ext.duration",
