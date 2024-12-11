@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.13] - 2024-12-11
+
 ### Added
 
 Added verbose logging to the early training callback.
@@ -14,6 +16,8 @@ Added verbose logging to the early training callback.
 ### Changed
 
 [dev] moved ruff formatting to pre-commit hooks.
+
+bumped `load-atoms` to 0.3.8.
 
 ## [0.0.12] - 2024-12-10
 
