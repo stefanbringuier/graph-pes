@@ -25,7 +25,7 @@ dependencies = [
     "e3nn",
     "scikit-learn",
     "locache",
-    "load-atoms>=0.3.6",
+    "load-atoms>=0.3.8",
     "wandb",
     "data2objects>=0.1.0",
 ]
