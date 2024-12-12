@@ -84,6 +84,14 @@ def sanity_check(model: GraphPESModel, batch: AtomicGraph) -> None:
             )
         )
 
+    if batch.cutoff < model.cutoff:
+        logger.error(
+            "Sanity check failed: you appear to be training on data "
+            f"composed of graphs with a cutoff ({batch.cutoff}) that is "
+            f"smaller than the cutoff used in the model ({model.cutoff}). "
+            "This is almost certainly not what you want to do?",
+        )
+
 
 class ModelTimer(pl.Callback):
     def __init__(self):
@@ -231,17 +239,22 @@ class LoggedProgressBar(ProgressBar):
                 "".join(
                     f"{part:>{self._widths[header]}}"
                     for part, header in zip(first_row, headers)
-                )
+                ),
+                flush=True,
             )
             print(
                 "".join(
                     f"{part:>{self._widths[header]}}"
                     for part, header in zip(second_row, headers)
-                )
+                ),
+                flush=True,
             )
 
         # print the values for this epoch
-        print("".join(f"{v:>{self._widths[k]}}" for k, v in metrics.items()))
+        print(
+            "".join(f"{v:>{self._widths[k]}}" for k, v in metrics.items()),
+            flush=True,
+        )
 
     @override
     def get_metrics(  # type: ignore
