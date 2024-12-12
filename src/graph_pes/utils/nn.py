@@ -7,6 +7,7 @@ from typing import (
     Iterable,
     Iterator,
     Sequence,
+    TypedDict,
     TypeVar,
 )
 
@@ -93,6 +94,30 @@ class UniformModuleList(torch.nn.ModuleList, Sequence[V]):
 
     def __iter__(self) -> Iterator[V]:
         return super().__iter__()  # type: ignore
+
+
+class MLPConfig(TypedDict):
+    """
+    A TypedDict helper class for configuring an :class:`MLP`.
+
+    Examples
+    --------
+    Specify this in a config file:
+
+    .. code-block:: yaml
+
+        mlp:
+            hidden_depth: 3
+            hidden_features: 64
+            activation: SiLU
+    """
+
+    hidden_depth: int
+    """The number of hidden layers in the MLP."""
+    hidden_features: int
+    """The number of features in the hidden layers."""
+    activation: str
+    """The activation function to use."""
 
 
 class MLP(torch.nn.Module):
@@ -189,6 +214,25 @@ class MLP(torch.nn.Module):
             stringify=False,
         )
 
+    @classmethod
+    def from_config(
+        cls,
+        config: MLPConfig,
+        input_features: int,
+        output_features: int,
+        bias: bool = True,
+    ) -> MLP:
+        """
+        Create an :class:`MLP` from a configuration.
+        """
+        return cls(
+            layers=[input_features]
+            + [config["hidden_features"]] * config["hidden_depth"]
+            + [output_features],
+            activation=config["activation"],
+            bias=bias,
+        )
+
 
 class ShiftedSoftplus(torch.nn.Module):
     def __init__(self):
@@ -267,7 +311,7 @@ class PerElementParameter(torch.nn.Parameter):
     ) -> PerElementParameter:
         pep = super().__new__(cls, data, requires_grad=requires_grad)
         pep._is_per_element_param = True  # type: ignore
-        return pep
+        return pep  # type: ignore
 
     def __init__(self, data: Tensor, requires_grad: bool = True):
         super().__init__()
