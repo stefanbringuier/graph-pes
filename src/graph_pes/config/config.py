@@ -175,7 +175,7 @@ class FittingConfig(FittingOptions):
     .. code-block:: yaml
         
         fitting:
-            trainer:
+            trainer_kwargs:
                 max_epochs: 10000
                 accelerator: gpu
                 accumulate_grad_batches: 4
@@ -187,7 +187,7 @@ class FittingConfig(FittingOptions):
     .. code-block:: yaml
     
         fitting:
-            trainer:
+            trainer_kwargs:
                 gradient_clip_val: 1.0
                 gradient_clip_algorithm: "norm"
     
@@ -196,7 +196,7 @@ class FittingConfig(FittingOptions):
     .. code-block:: yaml
     
         fitting:
-            trainer:
+            trainer_kwargs:
                 # validate when we are 10%, 20%, 30% etc. 
                 # through the training dataset
                 val_check_interval: 0.1  
