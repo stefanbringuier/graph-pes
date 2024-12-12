@@ -511,7 +511,7 @@ class MACE(_BaseMACE):
     .. code-block:: yaml
 
         model:
-            graph_pes.models.MACE:
+            +MACE:
                 elements: [H, C, N, O]
                 cutoff: 5.0
                 radial_expansion: Bessel

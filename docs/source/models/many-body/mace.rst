@@ -16,9 +16,9 @@ To replicate a ``ScaleShiftMACE`` model as defined in the reference `MACE <https
 .. code-block:: yaml
 
     model:
-        offset: 
-            graph_pes.models.LearnableOffset: {}
+        offset:
+            +LearnableOffset: {}
         many-body:
-            graph_pes.models.MACE:
+            +MACE:
                 elements: [H, C, N, O]
                 ...

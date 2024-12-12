@@ -615,7 +615,7 @@ class NequIP(_BaseNequIP):
     .. code:: yaml
 
         model:
-          graph_pes.models.NequIP:
+          +NequIP:
             elements: [C, H, O]
             cutoff: 5.0
 

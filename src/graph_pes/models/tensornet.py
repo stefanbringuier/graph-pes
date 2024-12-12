@@ -77,7 +77,7 @@ class TensorNet(GraphPESModel):
     .. code:: yaml
 
         model:
-          graph_pes.models.TensorNet:
+          +TensorNet:
             radial_features: 8
             radial_expansion: Bessel
             channels: 32

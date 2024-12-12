@@ -206,7 +206,7 @@ class PaiNN(GraphPESModel):
     .. code:: yaml
 
         model:
-          graph_pes.models.PaiNN:
+          +PaiNN:
             channels: 32
             layers: 3
             cutoff: 5.0
