@@ -179,6 +179,27 @@ class FittingConfig(FittingOptions):
                 max_epochs: 10000
                 accelerator: gpu
                 accumulate_grad_batches: 4
+    
+    Configure gradient clipping (see `PyTorch Lightning documentation 
+    <https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#gradient-clipping>`__
+    for details):
+    
+    .. code-block:: yaml
+    
+        fitting:
+            trainer:
+                gradient_clip_val: 1.0
+                gradient_clip_algorithm: "norm"
+    
+    Validate several times per epoch for large training datasets:
+
+    .. code-block:: yaml
+    
+        fitting:
+            trainer:
+                # validate when we are 10%, 20%, 30% etc. 
+                # through the training dataset
+                val_check_interval: 0.1  
     """
 
     callbacks: List[Callback]
