@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.15] - 2024-12-13
+
 ### Changed
 
 Changed the implementation of `TensorNet` to exactly match that in `TorchMD`.
