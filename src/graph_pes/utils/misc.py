@@ -8,9 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Sequence, TypeVar, overload
 
-import numpy
 import torch
-import torch.distributed
 from torch import Tensor
 
 T = TypeVar("T")
@@ -344,47 +342,6 @@ def left_aligned_div(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return result.transpose(0, -1)  # shape: (n, ..., a)
 
 
-def random_split(
-    sequence: Sequence[T],
-    lengths: Sequence[int],
-    seed: int | None = None,
-) -> list[list[T]]:
-    """
-    Randomly split `sequence` into sub-sequences according to `lengths`.
-
-    Parameters
-    ----------
-    sequence
-        The sequence to split.
-    lengths
-        The lengths of the sub-sequences to create.
-    seed
-        The random seed to use. If `None`, the current random state is
-        used (non-deterministic).
-
-    Returns
-    -------
-    list[list[T]]
-        A list of sub-sequences.
-
-    Examples
-    --------
-    >>> random_split("abcde", [2, 3])
-    [['b', 'c'], ['a', 'd', 'e']]
-    """
-
-    if sum(lengths) > len(sequence):
-        raise ValueError("Not enough things to split")
-
-    shuffle = numpy.random.RandomState(seed=seed).permutation(len(sequence))
-    ptr = [0, *numpy.cumsum(lengths)]
-
-    return [
-        [sequence[i] for i in shuffle[ptr[n] : ptr[n + 1]]]
-        for n in range(len(lengths))
-    ]
-
-
 def all_equal(iterable: Iterable[T]) -> bool:
     """
     Check if all elements in an iterable are the same. If the
@@ -541,3 +498,27 @@ def voigt_6_to_full_3x3(tensor: torch.Tensor) -> torch.Tensor:
     full_3x3[..., 1, 2] = tensor[..., 5]
     full_3x3[..., 2, 1] = tensor[..., 5]
     return full_3x3.squeeze()
+
+
+def slice_to_range(slice_obj: slice, sequence_length: int) -> range:
+    """
+    Convert a slice object to a range object.
+
+    Parameters
+    ----------
+    slice_obj : slice
+        The slice to convert
+    sequence_length : int
+        The length of the sequence being sliced
+
+    Returns
+    -------
+    range
+        A range object representing the indices that would be selected by the
+        slice.
+    """
+    start = 0 if slice_obj.start is None else slice_obj.start
+    stop = sequence_length if slice_obj.stop is None else slice_obj.stop
+    step = 1 if slice_obj.step is None else slice_obj.step
+
+    return range(start, stop, step)
