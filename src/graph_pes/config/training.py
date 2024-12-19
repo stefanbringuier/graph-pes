@@ -4,21 +4,20 @@
 #         we are targeting (3.8+)
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
-import dacite
-import data2objects
 import yaml
 from pytorch_lightning import Callback
 
-from graph_pes.data.datasets import FittingData, GraphDataset
+from graph_pes.config.shared import TorchConfig
+from graph_pes.data.datasets import DatasetCollection
 from graph_pes.graph_pes_model import GraphPESModel
 from graph_pes.models.addition import AdditionModel
+from graph_pes.training.callbacks import VerboseSWACallback
 from graph_pes.training.loss import Loss, TotalLoss, WeightedLoss
 from graph_pes.training.opt import LRScheduler, Optimizer
-from graph_pes.training.util import VerboseSWACallback
-from graph_pes.utils.misc import nested_merge_all
 
 
 @dataclass
@@ -107,7 +106,47 @@ class SWAConfig:
 class FittingConfig(FittingOptions):
     """Configuration for the fitting process."""
 
-    optimizer: Optimizer
+    trainer_kwargs: Dict[str, Any]
+    """
+    Key-word arguments to pass to the `PyTorch Lightning Trainer 
+    <https://lightning.ai/docs/pytorch/stable/common/trainer.html>`__ .
+    
+    Example
+    -------
+
+    The defaults:
+
+    .. code-block:: yaml
+        
+        fitting:
+            trainer_kwargs:
+                max_epochs: 100
+                accelerator: auto
+    
+    Configure gradient clipping (see `PyTorch Lightning documentation 
+    <https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#gradient-clipping>`__
+    for details):
+    
+    .. code-block:: yaml
+    
+        fitting:
+            trainer_kwargs:
+                gradient_clip_val: 1.0
+                gradient_clip_algorithm: "norm"
+                # ... and any other arguments
+    
+    Validate several times per epoch for large training datasets:
+
+    .. code-block:: yaml
+    
+        fitting:
+            trainer_kwargs:
+                # validate when we are 10%, 20%, 30% etc. 
+                # through the training dataset
+                val_check_interval: 0.1  
+    """
+
+    optimizer: Optimizer = Optimizer(name="AdamW", lr=1e-3, amsgrad=False)
     """
     Specification for the optimizer. Point to something that instantiates a
     :class:`~graph_pes.training.opt.Optimizer`.
@@ -134,7 +173,7 @@ class FittingConfig(FittingOptions):
             optimizer: +my.module.MagicOptimizer()
     """
 
-    scheduler: Union[LRScheduler, None]
+    scheduler: Union[LRScheduler, None] = None
     """
     .. _learning rate scheduler:
     
@@ -153,7 +192,7 @@ class FittingConfig(FittingOptions):
                     patience: 10
     """
 
-    swa: Union[SWAConfig, None]
+    swa: Union[SWAConfig, None] = None
     """
     Optional, defaults to ``None``.
 
@@ -161,48 +200,11 @@ class FittingConfig(FittingOptions):
 
         .. _stochastic weight averaging:
 
-        .. autoclass:: graph_pes.config.config.SWAConfig()
+        .. autoclass:: graph_pes.config.training.SWAConfig()
             :members:
     """
 
-    trainer_kwargs: Dict[str, Any]
-    """
-    Key-word arguments to pass to the `PyTorch Lightning Trainer 
-    <https://lightning.ai/docs/pytorch/stable/common/trainer.html>`__ .
-    
-    Example
-    -------
-    .. code-block:: yaml
-        
-        fitting:
-            trainer_kwargs:
-                max_epochs: 10000
-                accelerator: gpu
-                accumulate_grad_batches: 4
-    
-    Configure gradient clipping (see `PyTorch Lightning documentation 
-    <https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#gradient-clipping>`__
-    for details):
-    
-    .. code-block:: yaml
-    
-        fitting:
-            trainer_kwargs:
-                gradient_clip_val: 1.0
-                gradient_clip_algorithm: "norm"
-    
-    Validate several times per epoch for large training datasets:
-
-    .. code-block:: yaml
-    
-        fitting:
-            trainer_kwargs:
-                # validate when we are 10%, 20%, 30% etc. 
-                # through the training dataset
-                val_check_interval: 0.1  
-    """
-
-    callbacks: List[Callback]
+    callbacks: List[Callback] = field(default_factory=list)
     """
     List of PyTorch Lightning :class:`~pytorch_lightning.Callback` or
     :class:`~graph_pes.training.callbacks.GraphPESCallback` instances.
@@ -230,46 +232,25 @@ class GeneralConfig:
     run_id: Union[str, None]
     """A unique identifier for this run."""
 
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    """The logging level for the logger."""
-
-    progress: Literal["rich", "logged"]
-    """The progress bar style to use."""
-
     torch: TorchConfig
     """
     Configuration for PyTorch.
 
     .. dropdown:: ``torch`` options
 
-        .. autoclass:: graph_pes.config.config.TorchConfig()
+        .. autoclass:: graph_pes.config.shared.TorchConfig()
             :members:
     """
 
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    """The logging level for the logger."""
 
-@dataclass
-class TorchConfig:
-    """Configuration for PyTorch."""
-
-    dtype: Literal["float16", "float32", "float64"]
-    """
-    The dtype to use for all model parameters and graph properties.
-    Defaults is ``"float32"``.
-    """
-
-    float32_matmul_precision: Literal["highest", "high", "medium"]
-    """
-    The precision to use internally for float32 matrix multiplications. Refer to the
-    `PyTorch documentation <https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html>`__
-    for details.
-
-    Defaults to ``"high"`` to favour accelerated learning over numerical
-    exactness for matmuls.
-    """  # noqa: E501
+    progress: Literal["rich", "logged"] = "rich"
+    """The progress bar style to use."""
 
 
 @dataclass
-class Config:
+class TrainingConfig:
     """
     A schema for a configuration file to train a
     :class:`~graph_pes.GraphPESModel`.
@@ -311,16 +292,17 @@ class Config:
         for dealing with arbitrary offset energies.
     """
 
-    data: Union[FittingData, Dict[Literal["train", "valid"], GraphDataset]]
+    data: DatasetCollection
     """
-    The data to train on.
+    The data to train (and optionally test) on.
 
     .. dropdown:: ``data`` options
     
-        Point to something that can create a 
-        :class:`~graph_pes.data.FittingData` instance, or a dictionary mapping 
-        ``"train"`` and ``"valid"`` keys to 
-        :class:`~graph_pes.data.GraphDataset` instances:
+        Point to a dictionary mapping ``"train"`` and ``"valid"`` keys to 
+        :class:`~graph_pes.data.GraphDataset` instances, or to something that,
+        when called, returns such a dictionary or
+        :class:`~graph_pes.data.DatasetCollection` instance.
+
 
         Load custom data from a function with no arguments:
 
@@ -358,6 +340,19 @@ class Config:
                 valid:
                     +file_dataset:
                         path: validation_data.xyz
+                        cutoff: 5.0
+        
+        Inlcuding a "test" key will also include a test dataset in the
+        training run.
+
+        .. code-block:: yaml
+
+            data:
+                train: ...
+                valid: ...
+                test:
+                    +file_dataset:
+                        path: test_data.xyz
                         cutoff: 5.0
     """
 
@@ -416,7 +411,7 @@ class Config:
 
     .. dropdown:: ``fitting`` options
 
-        .. autoclass:: graph_pes.config.config.FittingConfig()
+        .. autoclass:: graph_pes.config.training.FittingConfig()
             :members:
             :inherited-members:
     """
@@ -427,7 +422,7 @@ class Config:
 
     .. dropdown:: ``general`` options
 
-        .. autoclass:: graph_pes.config.config.GeneralConfig()
+        .. autoclass:: graph_pes.config.training.GeneralConfig()
             :members:
     """
 
@@ -477,60 +472,6 @@ class Config:
 
     ### Methods ###
 
-    @classmethod
-    def from_raw_config_dicts(
-        cls, *data_dicts: dict[str, Any]
-    ) -> tuple[dict[str, Any], Config]:
-        """
-        Get the final, merged, reference-replaced config dictionary,
-        and corresponding Config instance
-        """
-
-        final_dict = nested_merge_all(*data_dicts)
-        # special, ugly handling of the fitting/optimizer field
-        if final_dict["fitting"]["optimizer"] is None:
-            final_dict["fitting"]["optimizer"] = yaml.safe_load(
-                """
-                +Optimizer:
-                    name: Adam
-                    lr: 0.001
-                """
-            )
-        final_dict: dict = data2objects.fill_referenced_parts(final_dict)  # type: ignore
-
-        import graph_pes
-        import graph_pes.data
-        import graph_pes.models
-        import graph_pes.training
-        import graph_pes.training.callbacks
-        import graph_pes.training.loss
-        import graph_pes.training.opt
-
-        object_dict = data2objects.from_dict(
-            final_dict,
-            modules=[
-                graph_pes,
-                graph_pes.models,
-                graph_pes.training,
-                graph_pes.training.opt,
-                graph_pes.training.loss,
-                graph_pes.data,
-                graph_pes.training.callbacks,
-            ],
-        )
-        try:
-            return final_dict, dacite.from_dict(
-                data_class=cls,
-                data=object_dict,
-                config=dacite.Config(strict=True),
-            )
-        except Exception as e:
-            raise ValueError(
-                "Your configuration file could not be successfully parsed. "
-                "Please check that it is formatted correctly. For examples, "
-                "please see https://jla-gardner.github.io/graph-pes/cli/graph-pes-train.html"
-            ) from e
-
     def get_model(self) -> GraphPESModel:
         if isinstance(self.model, GraphPESModel):
             return self.model
@@ -549,14 +490,14 @@ class Config:
             f"but got something else: {self.model}"
         )
 
-    def get_data(self) -> FittingData:
-        if isinstance(self.data, FittingData):
+    def get_data(self) -> DatasetCollection:
+        if isinstance(self.data, DatasetCollection):
             return self.data
         elif isinstance(self.data, dict):
-            return FittingData(**self.data)
+            return DatasetCollection(**self.data)
 
         raise ValueError(
-            "Expected to be able to parse a FittingData instance or a "
+            "Expected to be able to parse a DatasetCollection instance or a "
             "dictionary mapping 'train' and 'valid' keys to GraphDataset "
             "instances from the data config, but got something else: "
             f"{self.data}"
@@ -574,3 +515,8 @@ class Config:
             "WeightedLoss instances from the loss config, but got something "
             f"else: {self.loss}"
         )
+
+    @classmethod
+    def defaults(cls) -> dict:
+        with open(Path(__file__).parent / "training-defaults.yaml") as f:
+            return yaml.safe_load(f)

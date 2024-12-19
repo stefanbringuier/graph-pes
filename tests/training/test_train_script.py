@@ -5,14 +5,10 @@ from pathlib import Path
 
 import yaml
 
-from graph_pes.config import get_default_config_values
-from graph_pes.config.config import SWAConfig
-from graph_pes.scripts.train import (
-    extract_config_from_command_line,
-    parse_args,
-    train_from_config,
-)
-from graph_pes.training.trainer import WandbLogger
+from graph_pes.config.training import SWAConfig, TrainingConfig
+from graph_pes.scripts.train import train_from_config
+from graph_pes.scripts.utils import extract_config_dict_from_command_line
+from graph_pes.training.callbacks import WandbLogger
 from graph_pes.utils.misc import nested_merge
 
 from .. import helpers
@@ -27,14 +23,10 @@ graph-pes-train {config_path} \
 """
     sys.argv = command.split()
 
-    args = parse_args()
-    assert args.args == [
-        str(config_path),
-        "fitting/loader_kwargs/batch_size=32",
-        "data/+load_atoms_dataset/n_train=10",
-    ]
-
-    config_data = extract_config_from_command_line()
+    config_data = nested_merge(
+        TrainingConfig.defaults(),
+        extract_config_dict_from_command_line(""),
+    )
     assert config_data["fitting"]["loader_kwargs"]["batch_size"] == 32
     assert config_data["data"]["+load_atoms_dataset"]["n_train"] == 10
 
@@ -97,8 +89,9 @@ data:
     +graph_pes.data.load_atoms_dataset:
         id: {helpers.CU_STRUCTURES_FILE}
         cutoff: 3.0
-        n_train: 8
+        n_train: 6
         n_valid: 2
+        n_test: 2
 fitting:
     trainer_kwargs:
         max_epochs: 1
@@ -110,7 +103,7 @@ fitting:
         persistent_workers: false
 """
     return nested_merge(
-        get_default_config_values(),
+        TrainingConfig.defaults(),
         yaml.safe_load(config_str),
     )
 
@@ -121,7 +114,11 @@ def test_wandb_logging(tmp_path: Path, caplog):
     # configure wandb to not actually log anything
     wandb.init = lambda *args, **kwargs: None
 
-    logger = WandbLogger(tmp_path / "logging-name", project="test-project")
+    logger = WandbLogger(
+        tmp_path / "logging-name",
+        project="test-project",
+        log_epoch=False,
+    )
     assert logger._id == "logging-name"
     assert logger.save_dir == str(tmp_path)
     assert logger._project == "test-project"
