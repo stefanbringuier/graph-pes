@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.22] - 2025-02-05
+
 Add support for the `MatterSim` potential.
 
 **Breaking change**: removed the `WeightedLoss` class, and placed the weight directly on the `Loss` instance.
