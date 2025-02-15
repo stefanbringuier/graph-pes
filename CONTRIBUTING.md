@@ -21,7 +21,7 @@ Alternatively, you can use [`uv`](https://docs.astral.sh/uv/):
 ```bash
 git clone https://github.com/<your-username-here>/graph-pes.git
 cd graph-pes
-uv sync --extra test
+uv sync --all-extras
 ```
 
 ---
@@ -34,7 +34,7 @@ Next verify the tests all pass:
 
 ```bash
 pip install pytest
-pytest src/  # or uv run pytest src/
+pytest tests/  # or uv run pytest tests/
 ```
 
 Then push your changes back to your fork of the repository:

@@ -29,13 +29,13 @@ dependencies = [
     "wandb",
     "data2objects>=0.1.0",
     "pyright>=1.1.394",
+    "vesin>=0.3.2",
 ]
 requires-python = ">=3.9"
 
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]
-dev = ["ruff", "sphinx-autobuild"]
 docs = [
     "sphinx",
     "furo",
@@ -129,3 +129,6 @@ filterwarnings = [
     "ignore:.*The TorchScript type system doesn't support instance-level annotations on empty non-base types.*",
 ]
 norecursedirs = "tests/helpers"
+
+[dependency-groups]
+dev = ["notebook>=7.3.2", "ruff", "sphinx-autobuild"]
