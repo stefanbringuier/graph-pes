@@ -7,6 +7,18 @@ permissions:
   contents: write
 
 jobs:
+  formatting:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run ruff
+        uses: astral-sh/ruff-action@v3
+        with:
+          src: "./src"
+          version-file: "uv.lock"
+
   tests:
     runs-on: ubuntu-latest
     strategy:
@@ -28,10 +40,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: "uv.lock"
 
       - name: Install graph-pes and required dependencies
-        run: uv pip install --system --upgrade ".[test]"
+        run: uv sync --extra test
 
       - name: Useful info
         run: uv pip freeze
@@ -76,19 +88,19 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: "uv.lock"
 
       - name: Install pandoc
         run: sudo apt-get install -y --no-install-recommends pandoc
 
       - name: Install graph-pes and required dependencies
-        run: uv pip install --system --upgrade -e ".[docs]"
+        run: uv sync --extra docs
 
       ### DOCS ###
       - name: Build docs
         # -n: nitpick:
         # -W: turn warnings into errors
-        run: sphinx-build -nW docs/source docs/build --keep-going
+        run: uv run sphinx-build -nW docs/source docs/build --keep-going
 
       - name: Publich docs
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -111,7 +123,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: "uv.lock"
 
       - name: Install graph-pes and required dependencies
         run: uv pip install --system --upgrade ".[test]"
@@ -120,7 +132,7 @@ jobs:
         run: uv pip install --system mace-torch torch==2.5 # TODO: unfix this version
 
       - name: Run tests
-        run: pytest src/graph_pes/interfaces/mace_test.py -vvv
+        run: uv run pytest src/graph_pes/interfaces/mace_test.py -vvv
 
   mattersim-interface:
     runs-on: ubuntu-latest
@@ -134,7 +146,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: "uv.lock"
 
       - name: Install graph-pes and required dependencies
         run: uv pip install --system --upgrade ".[test]"
@@ -143,4 +155,4 @@ jobs:
         run: uv pip install --system mattersim==1.0.0
 
       - name: Run tests
-        run: pytest src/graph_pes/interfaces/mattersim_test.py -vvv
+        run: uv run pytest src/graph_pes/interfaces/mattersim_test.py -vvv
