@@ -5,7 +5,11 @@ import pytest
 
 from graph_pes.atomic_graph import number_of_atoms
 from graph_pes.data import load_atoms_dataset
-from graph_pes.data.datasets import file_dataset
+from graph_pes.data.datasets import (
+    ASEToGraphsConverter,
+    ConcatDataset,
+    file_dataset,
+)
 
 from .. import helpers
 
@@ -94,3 +98,39 @@ def test_file_dataset():
 
     assert len(shuffled) == 5
     assert shuffled[0].R.shape != dataset[0].R.shape
+
+
+def test_concat_dataset():
+    a = file_dataset(
+        helpers.CU_STRUCTURES_FILE,
+        cutoff=2.5,
+        n=5,
+    )
+    b = file_dataset(
+        helpers.CU_STRUCTURES_FILE,
+        cutoff=4.5,
+        n=5,
+    )
+
+    c = ConcatDataset(a=a, b=b)
+
+    # check correct length
+    assert len(c) == 10
+    assert c[0].R.shape == a[0].R.shape
+    assert c[0].cutoff == a[0].cutoff
+
+    assert c[5].R.shape == b[0].R.shape
+    assert c[5].cutoff == b[0].cutoff
+
+    # check that the properties are correct
+    assert set(c.properties) == set(a.properties + b.properties)
+
+    # check that we can't index past the end
+    with pytest.raises(IndexError):
+        c[100]
+
+    # check that calling prepare_data() and setup() works
+    assert isinstance(c.datasets["a"].graphs, ASEToGraphsConverter)
+    c.prepare_data()
+    c.setup()
+    assert isinstance(c.datasets["a"].graphs, list)
