@@ -1169,7 +1169,7 @@ wheels = [
 
 [[package]]
 name = "graph-pes"
-version = "0.0.26"
+version = "0.0.30"
 source = { editable = "." }
 dependencies = [
     { name = "ase" },
