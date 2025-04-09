@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import torch
+from ase.data import chemical_symbols
 from sklearn.linear_model import Ridge
 
 from graph_pes.atomic_graph import (
     AtomicGraph,
     number_of_structures,
     sum_per_structure,
+    to_batch,
 )
+from graph_pes.graph_pes_model import GraphPESModel
+from graph_pes.utils.nn import PerElementParameter
 
 from .logger import logger
 
@@ -74,3 +78,18 @@ def guess_per_element_mean_and_var(
     logger.debug(f"Per-element variances: {variances}")
 
     return means, variances
+
+
+@torch.no_grad()
+def get_auto_offset(
+    model: GraphPESModel,
+    graphs: list[AtomicGraph],
+) -> PerElementParameter:
+    predictions = torch.cat([model.predict_energy(g) for g in graphs])
+    references = torch.cat([g.properties["energy"] for g in graphs])
+    diffs = predictions - references
+    means, _ = guess_per_element_mean_and_var(diffs, to_batch(graphs))
+    return PerElementParameter.from_dict(
+        **{chemical_symbols[Z]: mu for Z, mu in means.items()},
+        requires_grad=True,
+    )

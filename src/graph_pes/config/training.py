@@ -47,6 +47,7 @@ class FittingOptions:
     """
     DEPRECATED: use the `early_stopping` config option instead.
     """
+    auto_fit_reference_energies: bool
 
 
 @dataclass
@@ -109,11 +110,6 @@ class GeneralConfig:
     torch: TorchConfig
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     progress: Literal["rich", "logged"] = "rich"
-
-
-# TODO:
-# - move get_model to utils, call it parse_model
-# - turn loss into dict with human readable names + move parse_loss to utils
 
 
 @dataclass

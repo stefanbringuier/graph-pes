@@ -20,12 +20,17 @@ from graph_pes.config.training import FittingOptions
 from graph_pes.data.datasets import DatasetCollection, GraphDataset
 from graph_pes.data.loader import GraphDataLoader
 from graph_pes.graph_pes_model import GraphPESModel
+from graph_pes.models.addition import AdditionModel
+from graph_pes.models.offsets import LearnableOffset
 from graph_pes.training.loss import (
     MAE,
     Loss,
     PerAtomEnergyLoss,
     PropertyLoss,
     TotalLoss,
+)
+from graph_pes.training.loss import (
+    RMSE as RMSE_batchwise,
 )
 from graph_pes.training.opt import LRScheduler, Optimizer
 from graph_pes.training.utils import (
@@ -36,6 +41,7 @@ from graph_pes.training.utils import (
 from graph_pes.utils.logger import logger
 from graph_pes.utils.nn import PerElementParameter, UniformModuleList
 from graph_pes.utils.sampling import SequenceSampler
+from graph_pes.utils.shift_and_scale import get_auto_offset
 
 
 def train_with_lightning(
@@ -88,6 +94,21 @@ def train_with_lightning(
         logger.info(f"Pre-fitting the model on {len(pre_fit_graphs):,} samples")
         model.pre_fit_all_components(pre_fit_graphs)
     trainer.strategy.barrier("pre-fit")
+
+    # optionally account for reference energies
+    if fit_config.auto_fit_reference_energies:
+        offset_pep = get_auto_offset(model, pre_fit_graphs)
+        offset_model = LearnableOffset()
+        offset_model._offsets = offset_pep
+        offset_model._has_been_pre_fit.fill_(1)
+        if (
+            isinstance(model, AdditionModel)
+            and "auto_offset" not in model.models
+        ):
+            model.models["auto_offset"] = offset_model
+        else:
+            model = AdditionModel(base=model, auto_offset=offset_model)
+    trainer.strategy.barrier("auto-fit reference energies")
 
     # always register the elements in the training set
     for param in model.parameters():
@@ -463,6 +484,7 @@ def get_eval_metrics_for(dataset: GraphDataset) -> list[Loss]:
         evals.append(PropertyLoss("energy", MAE()))
     if "forces" in dataset.properties:
         evals.append(PropertyLoss("forces", tm_RMSE()))
+        evals.append(PropertyLoss("forces", RMSE_batchwise()))
         evals.append(PropertyLoss("forces", MAE()))
     if "stress" in dataset.properties:
         evals.append(PropertyLoss("stress", tm_RMSE()))
