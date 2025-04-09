@@ -97,6 +97,18 @@ def train_with_lightning(
 
     # optionally account for reference energies
     if fit_config.auto_fit_reference_energies:
+        logger.info("""\
+Attempting to automatically detect the offset energy for each element.
+We do this by first generating predictions for each training structure (up to \
+`config.fitting.max_n_pre_fit` if specified). 
+This is a slow process! If you already know the reference energies (or the \
+difference in reference energies if you are fine-tuning an existing model to a \
+different level of theory), 
+we recommend setting `config.fitting.auto_fit_reference_energies` to `False` \
+and manually specifying a `LearnableOffset` component of your model.
+See the "Fine-tuning foundation models" quickstart notebook in the docs
+for more information: \
+https://jla-gardner.github.io/graph-pes/quickstart/foundation-models.html""")
         offset_pep = get_auto_offset(model, pre_fit_graphs)
         offset_model = LearnableOffset()
         offset_model._offsets = offset_pep
