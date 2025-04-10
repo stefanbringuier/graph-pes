@@ -6,7 +6,7 @@
 
 We also provide two convenience functions to the recently trained ``MACE-MP`` and ``MACE-OFF`` "foundation" models, as well as the ``GO-MACE-23`` model.
 
-If you use any ``mace-torch`` models in your work, please visit the `mace-torch <https://github.com/ACEsuit/mace-torch>`__ repository and cite the following:
+If you use any ``mace-torch`` models in your work, please visit the `mace-torch <https://github.com/ACEsuit/mace>`__ repository and cite the following:
 
 .. code-block:: bibtex
 
@@ -36,7 +36,7 @@ Installation
 ------------
 
 To install ``graph-pes`` with support for MACE models, you need to install
-the `mace-torch <https://github.com/ACEsuit/mace-torch>`__ package. We recommend doing this in a new environment:
+the `mace-torch <https://github.com/ACEsuit/mace>`__ package. We recommend doing this in a new environment:
 
 .. code-block:: bash
 
