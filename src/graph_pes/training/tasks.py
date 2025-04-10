@@ -20,8 +20,6 @@ from graph_pes.config.training import FittingOptions
 from graph_pes.data.datasets import DatasetCollection, GraphDataset
 from graph_pes.data.loader import GraphDataLoader
 from graph_pes.graph_pes_model import GraphPESModel
-from graph_pes.models.addition import AdditionModel
-from graph_pes.models.offsets import LearnableOffset
 from graph_pes.training.loss import (
     MAE,
     Loss,
@@ -41,7 +39,7 @@ from graph_pes.training.utils import (
 from graph_pes.utils.logger import logger
 from graph_pes.utils.nn import PerElementParameter, UniformModuleList
 from graph_pes.utils.sampling import SequenceSampler
-from graph_pes.utils.shift_and_scale import get_auto_offset
+from graph_pes.utils.shift_and_scale import add_auto_offset
 
 
 def train_with_lightning(
@@ -97,29 +95,7 @@ def train_with_lightning(
 
     # optionally account for reference energies
     if fit_config.auto_fit_reference_energies:
-        logger.info("""\
-Attempting to automatically detect the offset energy for each element.
-We do this by first generating predictions for each training structure (up to \
-`config.fitting.max_n_pre_fit` if specified). 
-This is a slow process! If you already know the reference energies (or the \
-difference in reference energies if you are fine-tuning an existing model to a \
-different level of theory), 
-we recommend setting `config.fitting.auto_fit_reference_energies` to `False` \
-and manually specifying a `LearnableOffset` component of your model.
-See the "Fine-tuning foundation models" quickstart notebook in the docs
-for more information: \
-https://jla-gardner.github.io/graph-pes/quickstart/foundation-models.html""")
-        offset_pep = get_auto_offset(model, pre_fit_graphs)
-        offset_model = LearnableOffset()
-        offset_model._offsets = offset_pep
-        offset_model._has_been_pre_fit.fill_(1)
-        if (
-            isinstance(model, AdditionModel)
-            and "auto_offset" not in model.models
-        ):
-            model.models["auto_offset"] = offset_model
-        else:
-            model = AdditionModel(base=model, auto_offset=offset_model)
+        model = add_auto_offset(model, pre_fit_graphs)
     trainer.strategy.barrier("auto-fit reference energies")
 
     # always register the elements in the training set
