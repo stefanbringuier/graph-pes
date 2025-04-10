@@ -27,6 +27,9 @@ from graph_pes.training.loss import (
     PropertyLoss,
     TotalLoss,
 )
+from graph_pes.training.loss import (
+    RMSE as RMSE_batchwise,
+)
 from graph_pes.training.opt import LRScheduler, Optimizer
 from graph_pes.training.utils import (
     VALIDATION_LOSS_KEY,
@@ -36,6 +39,7 @@ from graph_pes.training.utils import (
 from graph_pes.utils.logger import logger
 from graph_pes.utils.nn import PerElementParameter, UniformModuleList
 from graph_pes.utils.sampling import SequenceSampler
+from graph_pes.utils.shift_and_scale import add_auto_offset
 
 
 def train_with_lightning(
@@ -88,6 +92,11 @@ def train_with_lightning(
         logger.info(f"Pre-fitting the model on {len(pre_fit_graphs):,} samples")
         model.pre_fit_all_components(pre_fit_graphs)
     trainer.strategy.barrier("pre-fit")
+
+    # optionally account for reference energies
+    if fit_config.auto_fit_reference_energies:
+        model = add_auto_offset(model, pre_fit_graphs)
+    trainer.strategy.barrier("auto-fit reference energies")
 
     # always register the elements in the training set
     for param in model.parameters():
@@ -463,6 +472,7 @@ def get_eval_metrics_for(dataset: GraphDataset) -> list[Loss]:
         evals.append(PropertyLoss("energy", MAE()))
     if "forces" in dataset.properties:
         evals.append(PropertyLoss("forces", tm_RMSE()))
+        evals.append(PropertyLoss("forces", RMSE_batchwise()))
         evals.append(PropertyLoss("forces", MAE()))
     if "stress" in dataset.properties:
         evals.append(PropertyLoss("stress", tm_RMSE()))

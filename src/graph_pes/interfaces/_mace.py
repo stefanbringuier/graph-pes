@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+from contextlib import redirect_stdout
 from itertools import chain
 from pathlib import Path
 from typing import Callable, Literal
@@ -150,7 +152,7 @@ def _get_dtype(
 
 
 def mace_mp(
-    model: Literal["small", "medium", "large"],
+    model: str = "small",
     precision: Literal["float32", "float64"] | None = None,
 ) -> MACEWrapper:
     """
@@ -169,6 +171,8 @@ def mace_mp(
       Yuan Chiang, Alpha A Lee, Anubhav Jain, Kristin A Persson, 2023,
       arXiv:2308.14920
 
+    As of 10th April 2025, the following models are available: ``["small", "medium", "large", "medium-mpa-0", "small-0b", "medium-0b", "small-0b2", "medium-0b2", "medium-0b3", "large-0b2", "medium-omat-0"]``
+
     Parameters
     ----------
     model
@@ -178,17 +182,21 @@ def mace_mp(
         of torch will be used (you can set this when using ``graph-pes-train``
         via ``general/torch/dtype``)
     """  # noqa: E501
-    from mace.calculators.foundations_models import mace_mp
+    from mace.calculators.foundations_models import mace_mp as mace_mp_impl
 
     dtype = _get_dtype(precision)
     precision_str = {torch.float32: "float32", torch.float64: "float64"}[dtype]
 
-    mace_torch_model = mace_mp(
-        model,
-        device="cpu",
-        default_dtype=precision_str,
-        return_raw_model=True,
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=FutureWarning)
+        with redirect_stdout(None):
+            mace_torch_model = mace_mp_impl(
+                model,
+                device="cpu",
+                default_dtype=precision_str,
+                return_raw_model=True,
+            )
+
     assert isinstance(mace_torch_model, torch.nn.Module)
     _fix_dtype(mace_torch_model, dtype)
     return MACEWrapper(mace_torch_model)

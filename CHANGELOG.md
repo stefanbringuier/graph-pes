@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Added auto-offset fitting, together with documentation for how to fine-tune foundation models.
+
 ## [0.0.30] - 2025-04-03
 
 Changed the way RMSE values are logged to ensure that they are correctly accumulated when validating (minor changes to final values).

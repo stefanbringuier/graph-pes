@@ -9,6 +9,6 @@ Run each of these notebooks locally, or use the Google Colab links to follow alo
     quickstart
     implement-a-model
     custom-training-loop
-
+    foundation-models
 
 
