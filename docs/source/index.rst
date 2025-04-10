@@ -73,7 +73,7 @@ graph-pes
 A 3-in-1 toolset:
 =================
 
-.. dropdown:: ``graph_pes``: a Python library of components for training ML-PESs
+.. dropdown:: ``graph_pes``: a Python library of components for building ML-PESs
 
    This includes:
 
@@ -134,6 +134,15 @@ Alternatively, open any of these notebooks to get started. Install ``graph-pes``
 
             Fine-tune a model
 
+     .. grid-item-card::
+        :text-align: center
+
+        .. button-ref:: quickstart/foundation-models
+            :ref-type: doc
+            :click-parent:
+
+            Fine-tune foundation models
+
     .. grid-item-card::
         :text-align: center
 
@@ -160,6 +169,15 @@ Alternatively, open any of these notebooks to get started. Install ``graph-pes``
             :click-parent:
 
             Implement your own training loop
+
+    .. grid-item-card::
+        :text-align: center
+
+        .. button-ref:: tools/ase
+            :ref-type: doc
+            :click-parent:
+
+            Use graph-pes models in ASE
 
 
 Installation

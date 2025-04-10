@@ -73,6 +73,7 @@ def test_integration(model: GraphPESModel):
             max_n_pre_fit=100,
             early_stopping=None,
             early_stopping_patience=None,
+            auto_fit_reference_energies=False,
         ),
         optimizer=Optimizer("Adam", lr=3e-4),
     )

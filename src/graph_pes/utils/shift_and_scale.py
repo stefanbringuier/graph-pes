@@ -53,6 +53,8 @@ def guess_per_element_mean_and_var(
     for i, Z in enumerate(unique_Zs):
         N[:, i] = sum_per_structure((batch.Z == Z).float(), batch)
 
+    # TODO: warn when N is all of the same composition
+
     # calculate the per-element mean
     # use Ridge rather than LinearRegression to avoid singular matrices
     # when e.g. only one structure contains an atom of a given type...
