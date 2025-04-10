@@ -1169,7 +1169,7 @@ wheels = [
 
 [[package]]
 name = "graph-pes"
-version = "0.0.32"
+version = "0.0.33"
 source = { editable = "." }
 dependencies = [
     { name = "ase" },
@@ -1222,7 +1222,7 @@ requires-dist = [
     { name = "build", marker = "extra == 'publish'" },
     { name = "dacite" },
     { name = "data2objects", specifier = ">=0.1.0" },
-    { name = "e3nn", specifier = "<=0.5.3" },
+    { name = "e3nn" },
     { name = "furo", marker = "extra == 'docs'" },
     { name = "load-atoms", specifier = ">=0.3.9" },
     { name = "locache", specifier = ">=4.0.2" },
@@ -1238,7 +1238,7 @@ requires-dist = [
     { name = "sphinx-copybutton", marker = "extra == 'docs'" },
     { name = "sphinx-design", marker = "extra == 'docs'" },
     { name = "sphinxext-opengraph", marker = "extra == 'docs'" },
-    { name = "torch", specifier = "==2.5" },
+    { name = "torch" },
     { name = "twine", marker = "extra == 'publish'" },
     { name = "vesin", specifier = ">=0.3.2" },
     { name = "wandb" },

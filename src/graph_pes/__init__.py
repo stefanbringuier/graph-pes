@@ -9,7 +9,8 @@ from graph_pes.graph_pes_model import GraphPESModel
 warnings.filterwarnings("ignore", category=FutureWarning, module="e3nn")
 
 # fix e3nns torch.load without weights_only
-torch.serialization.add_safe_globals([slice])
+if hasattr(torch.serialization, "add_safe_globals"):
+    torch.serialization.add_safe_globals([slice])
 
 __all__ = ["AtomicGraph", "GraphPESModel"]
 __version__ = "0.0.33"
