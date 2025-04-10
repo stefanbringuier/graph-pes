@@ -11,6 +11,7 @@ from ase.data import chemical_symbols
 
 from graph_pes.atomic_graph import AtomicGraph, to_batch
 from graph_pes.models import FixedOffset
+from graph_pes.models.addition import AdditionModel
 from graph_pes.utils.shift_and_scale import (
     add_auto_offset,
     guess_per_element_mean_and_var,
@@ -52,12 +53,19 @@ def test_add_auto_offset():
     starting_model = FixedOffset(**model_reference)
 
     final_model = add_auto_offset(starting_model, graphs)
+    assert isinstance(final_model, AdditionModel)
+    assert set(final_model.models.keys()) == {"auto_offset", "base"}
     final_model.eval()
 
     for g in graphs:
         assert final_model.predict_energy(g).item() == pytest.approx(
             g.properties["energy"].item(), abs=1e-4
         )
+
+    starting_model = AdditionModel(offset=FixedOffset(**model_reference))
+    final_model = add_auto_offset(starting_model, graphs)
+    assert isinstance(final_model, AdditionModel)
+    assert set(final_model.models.keys()) == {"auto_offset", "offset"}
 
 
 def test_add_auto_offset_no_op():

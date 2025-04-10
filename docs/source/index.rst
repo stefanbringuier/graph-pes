@@ -134,24 +134,6 @@ Alternatively, open any of these notebooks to get started. Install ``graph-pes``
 
             Fine-tune a model
 
-     .. grid-item-card::
-        :text-align: center
-
-        .. button-ref:: quickstart/foundation-models
-            :ref-type: doc
-            :click-parent:
-
-            Fine-tune foundation models
-
-    .. grid-item-card::
-        :text-align: center
-
-        .. button-ref:: tools/lammps
-            :ref-type: doc
-            :click-parent:
-
-            Run LAMMPS MD
-
     .. grid-item-card::
         :text-align: center
 
@@ -169,6 +151,25 @@ Alternatively, open any of these notebooks to get started. Install ``graph-pes``
             :click-parent:
 
             Implement your own training loop
+    
+    .. grid-item-card::
+        :text-align: center
+
+        .. button-ref:: quickstart/foundation-models
+            :ref-type: doc
+            :click-parent:
+
+            Fine-tune foundation models
+
+    .. grid-item-card::
+        :text-align: center
+
+        .. button-ref:: tools/lammps
+            :ref-type: doc
+            :click-parent:
+
+            Run LAMMPS MD
+
 
     .. grid-item-card::
         :text-align: center

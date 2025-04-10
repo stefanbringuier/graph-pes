@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
+import ase
 import numpy as np
 import torch
 from ase.data import chemical_symbols
@@ -58,16 +59,21 @@ def guess_per_element_mean_and_var(
 
     if np.linalg.matrix_rank(N.numpy()) < N.shape[1]:
         logger.warning(
-            "We are attempting to guess the mean per-element "
-            "contribution for a per-structure quantity (usually "
-            "the total energy)\n"
-            "However, the composition of the training set is such that "
-            "no unique solution is possible. This is probably because "
-            "you are training on structures all with the same composition "
-            "(e.g. all structures are of the form n H2O).\n"
-            "Consider explicitly setting the per-element contributions "
-            "if you know them, or including a variety of structures of "
-            "different compositions in the training set."
+            """\
+We are attempting to guess the mean per-element
+contribution for a per-structure quantity (usually
+the total energy). 
+
+However, the composition of the training set is such that 
+no unique solution is possible. 
+
+This is probably because you are training on structures
+all with the same composition (e.g. all structures are
+of the form n H2O). Consider explicitly setting the
+per-element contributions if you know them, or
+including a variety of structures of different
+compositions in the training set.
+"""
         )
 
     # calculate the per-element mean
@@ -100,22 +106,30 @@ def guess_per_element_mean_and_var(
 @torch.no_grad()
 def add_auto_offset(
     model: GraphPESModel,
-    graphs: Sequence[AtomicGraph],
+    structures: Sequence[AtomicGraph] | Sequence[ase.Atoms],
 ) -> GraphPESModel:
     from graph_pes.models import AdditionModel, LearnableOffset
 
     logger.info("""\
 Attempting to automatically detect the offset energy for each element.
-We do this by first generating predictions for each training structure (up to \
-`config.fitting.max_n_pre_fit` if specified). 
-This is a slow process! If you already know the reference energies (or the \
-difference in reference energies if you are fine-tuning an existing model to a \
+We do this by first generating predictions for each training structure 
+(up to `config.fitting.max_n_pre_fit` if specified). 
+This is a slow process! If you already know the reference energies (or the
+difference in reference energies if you are fine-tuning an existing model to a
 different level of theory), 
-we recommend setting `config.fitting.auto_fit_reference_energies` to `False` \
+we recommend setting `config.fitting.auto_fit_reference_energies` to `False`
 and manually specifying a `LearnableOffset` component of your model.
+
 See the "Fine-tuning foundation models" quickstart notebook in the docs
-for more information: \
+for more information: 
 https://jla-gardner.github.io/graph-pes/quickstart/foundation-models.html""")
+
+    graphs = [
+        AtomicGraph.from_ase(s, model.cutoff.item())
+        if isinstance(s, ase.Atoms)
+        else s
+        for s in structures
+    ]
 
     model.eval()
 
