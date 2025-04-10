@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.34] - 2025-04-10
+
+Fix `graph-pes` dependency issues with `e3nn`.
+
 ## [0.0.32] - 2025-04-10
 
 Added auto-offset fitting, together with documentation for how to fine-tune foundation models.
