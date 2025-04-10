@@ -152,7 +152,7 @@ def _get_dtype(
 
 
 def mace_mp(
-    model: Literal["small", "medium", "large"],
+    model: str = "small",
     precision: Literal["float32", "float64"] | None = None,
 ) -> MACEWrapper:
     """
@@ -170,6 +170,8 @@ def mace_mp(
     - Matbench Discovery by Janosh Riebesell, Rhys EA Goodall, Philipp Benner,
       Yuan Chiang, Alpha A Lee, Anubhav Jain, Kristin A Persson, 2023,
       arXiv:2308.14920
+
+    As of 10th April 2025, the following models are available: ``["small", "medium", "large", "medium-mpa-0", "small-0b", "medium-0b", "small-0b2", "medium-0b2", "medium-0b3", "large-0b2", "medium-omat-0"]``
 
     Parameters
     ----------
