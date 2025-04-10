@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.32] - 2025-04-10
+
 Added auto-offset fitting, together with documentation for how to fine-tune foundation models.
 
 ## [0.0.30] - 2025-04-03
