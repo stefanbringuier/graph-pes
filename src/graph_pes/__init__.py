@@ -7,4 +7,4 @@ from graph_pes.graph_pes_model import GraphPESModel
 warnings.filterwarnings("ignore", category=FutureWarning, module="e3nn")
 
 __all__ = ["AtomicGraph", "GraphPESModel"]
-__version__ = "0.0.31"
+__version__ = "0.0.32"
