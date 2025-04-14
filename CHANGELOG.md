@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.35] - 2025-04-14
+
 Improved quickstart documentation.
 
 Added an interface to the `orb-models` package.
