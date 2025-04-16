@@ -70,6 +70,7 @@ push = false
 "src/graph_pes/graph_pes_model.py" = [
     'self._GRAPH_PES_VERSION: Final\[str\] = "{version}"',
 ]
+"CITATION.cff" = ['^version: {version}$']
 
 [tool.ruff]
 line-length = 80
