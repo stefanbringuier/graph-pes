@@ -64,8 +64,8 @@ def main():
         checkpoint_path,
         model=parse_model(config.model),
         loss=parse_loss(config.loss),
-        optimizer=config.fitting.optimizer,
-        scheduler=config.fitting.scheduler,
+        optimizer=config.fitting.get_optimizer(),
+        scheduler=config.fitting.get_scheduler(),
     )
 
     # create the trainer
@@ -75,7 +75,7 @@ def main():
         logger.info(f"Resuming training at {now_ms}")
 
     # resume training
-    data = config.get_data()
+    data = config.get_data(task.model)
     loader_kwargs = {**config.fitting.loader_kwargs}
     loader_kwargs["shuffle"] = True
     train_loader = GraphDataLoader(data.train, **loader_kwargs)

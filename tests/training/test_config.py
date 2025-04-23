@@ -83,15 +83,14 @@ def test_optimizer():
     user_data = yaml.safe_load("""
     fitting:
         optimizer:
-            +Optimizer:
-                name: Adam
-                lr: 0.001
+            name: Adam
+            lr: 0.001
     """)
     actual_data = nested_merge(dummy_data, user_data)
     _, config = instantiate_config_from_dict(actual_data, TrainingConfig)
 
     dummy_model = SchNet()
-    optimizer_instance = config.fitting.optimizer(dummy_model)
+    optimizer_instance = config.fitting.get_optimizer()(dummy_model)
     assert optimizer_instance.param_groups[0]["lr"] == 0.001
 
 
@@ -99,23 +98,22 @@ def test_scheduler():
     # no default scheduler
     dummy_data = get_dummy_config_dict()
     _, config = instantiate_config_from_dict(dummy_data, TrainingConfig)
-    scheduler = config.fitting.scheduler
+    scheduler = config.fitting.get_scheduler()
     assert scheduler is None
 
     # with default scheduler
     user_data = yaml.safe_load("""
     fitting:
         scheduler:
-            +LRScheduler:
-                name: StepLR
-                step_size: 10
-                gamma: 0.1
+            name: StepLR
+            step_size: 10
+            gamma: 0.1
     """)
     dummy_data = get_dummy_config_dict()
     actual_data = nested_merge(dummy_data, user_data)
     _, config = instantiate_config_from_dict(actual_data, TrainingConfig)
 
-    scheduler = config.fitting.scheduler
+    scheduler = config.fitting.get_scheduler()
     assert scheduler is not None
     dummy_optimizer = torch.optim.Adam(SchNet().parameters())
     scheduler_instance = scheduler(dummy_optimizer)

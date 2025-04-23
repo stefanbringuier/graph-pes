@@ -94,32 +94,69 @@ See `the fine-tuning guide <https://jla-gardner.github.io/graph-pes/quickstart/q
 ``data``
 --------
 
-To specify the data you wish to use, you need to point to point to a dictionary that maps the keys ``"train"`` and ``"valid"`` to :class:`~graph_pes.data.GraphDataset` instances. A common way to do this is by using the :func:`~graph_pes.data.file_dataset` function:
+There are various ways to specify the data you wish to use.
+
+The simplest is to point to a dictionary showing where your training, validation and (optionally) test data are located:
+
+.. code-block:: yaml
+
+    data:
+        train: data/train.xyz
+        valid: data/valid.xyz
+        test: data/test.xyz  # results logged to "test/test/<metric_name>"
+
+Note that the ``test`` key can point either to a single dataset as above, or to a dictionary of several named test sets:
+
+.. code-block:: yaml
+
+    data:
+        train: data/train.xyz
+        valid: data/valid.xyz
+        test:
+            bulk: data/bulk-test.xyz  # results logged to "test/bulk/<metric_name>"
+            slab: data/slab-test.xyz  # results logged to "test/slab/<metric_name>"
+
+Under the hood, these file-paths are passed to the :func:`~graph_pes.data.file_dataset` function, together with the ``cutoff`` of the model you are training.
+
+You can achieve more-fine grained control by instead providing a dictionary of keys to pass to the :func:`~graph_pes.data.file_dataset` function:
 
 .. code-block:: yaml
 
     data:
         train:
-            +file_dataset:
-                path: data/train.xyz
-                cutoff: 5.0
-                n: 1000
-                shuffle: true
-                seed: 42
+            # take a random sample of 1000 graphs to train on
+            path: data/train.xyz
+            n: 1000
+            shuffle: true
+            seed: 42
         valid:
+            # use the first 100 graphs in the validation set
+            path: data/valid.db
+            n: 100
+            shuffle: false
+
+.. note::
+
+    The files can be any plain-text file that can be read by :func:`ase.io.read`, e.g. an ``.xyz`` file, or a ``.db`` file containing a SQLite database of :class:`ase.Atoms` objects that is readable as an `ASE database <https://wiki.fysik.dtu.dk/ase/ase/db/db.html>`__.
+
+Alternatively, you are able to point to any python function that returns a :class:`~graph_pes.data.GraphDataset` instance:
+
+.. code-block:: yaml
+
+    data:
+        train: +my_module.my_training_set()
+        valid: 
             +file_dataset:
                 path: data/valid.xyz
                 cutoff: 5.0
 
-Alternatively, you can point to a function that returns such a dictionary:
+Finally, you can also just point the ``data`` key directly to a :class:`~graph_pes.data.DatasetCollection` instance:
 
 .. code-block:: yaml
 
-    data: 
-        +my_module.my_fitting_data:
-            cutoff: 5.0
+    data: +my_module.my_dataset_collection()
 
-This is what the :func:`~graph_pes.data.load_atoms_dataset` function does:
+This is exactly what the :func:`~graph_pes.data.load_atoms_dataset` function does:
 
 .. code-block:: yaml
 
@@ -131,39 +168,6 @@ This is what the :func:`~graph_pes.data.load_atoms_dataset` function does:
             n_val: 1000
             property_map:
                 energy: U0
-
-After training is finished, the ``graph-pes-train`` command will load the best model weights and re-test the model on the training and validation data.
-You can also test on other datasets at this point by including a ``"test"`` key in your config file. This should either point to:
-
-* a :class:`~graph_pes.data.GraphDataset` instance (in which case testing metrics will be logged to ``"test/test/<metric_name>"``)
-
-  .. code-block:: yaml
-
-      data:
-          train: ...
-          valid: ...
-          test:
-              +file_dataset:
-                  path: test_data.xyz
-                  cutoff: 5.0
-
-* a dictionary mapping custom names to :class:`~graph_pes.data.GraphDataset` instances (in which case testing metrics will be logged to ``"test/<custom_name>/<metric_name>"``)
-
-  .. code-block:: yaml
-
-      data:
-          train: ...
-          valid: ...
-          test:
-              dimers:
-                  +file_dataset:
-                      path: data/dimers.xyz
-                      cutoff: 5.0
-              clusters:
-                  +file_dataset:
-                      path: data/clusters.xyz
-                      cutoff: 5.0
-
 
 ``loss``
 --------
@@ -238,21 +242,19 @@ The ``fitting`` section of the config is used to specify various hyperparameters
 Optimizer
 +++++++++
 
-Configure the optimizer to use to train the model by pointing to something that instantiates a :class:`~graph_pes.training.opt.Optimizer`.
-
-The default is:
+Configure the optimizer used to train the model, either by providing a dictionary of keyword arguments to the :class:`~graph_pes.training.opt.Optimizer` constructor:
 
 .. code-block:: yaml
 
     fitting:        
         optimizer:
-            +Optimizer:
-                name: Adam
-                lr: 3e-3
-                weight_decay: 0.0
-                amsgrad: false
+            # these are the default values
+            name: Adam
+            lr: 3e-3
+            weight_decay: 0.0
+            amsgrad: false
 
-but you could also point to your own custom optimizer:
+or by pointing to something that instantiates a :class:`~graph_pes.training.opt.Optimizer`, for instance using your own code:
 
 .. code-block:: yaml
 
@@ -265,18 +267,15 @@ but you could also point to your own custom optimizer:
 Learning rate scheduler
 +++++++++++++++++++++++
 
-Configure the learning rate scheduler to use to train the model by pointing to something that instantiates a :class:`~graph_pes.training.opt.LRScheduler`.
-
-For instance:
+Configure the learning rate scheduler to use to train the model by specifying a dictionary of keyword arguments to the :class:`~graph_pes.training.opt.LRScheduler` constructor:
 
 .. code-block:: yaml
 
     fitting:
         scheduler:
-            +LRScheduler:
-                name: ReduceLROnPlateau
-                factor: 0.5
-                patience: 10
+            name: ReduceLROnPlateau
+            factor: 0.5
+            patience: 10
 
 By default, no learning rate scheduler is used if you don't specify one, or if you specify ``null``:
 

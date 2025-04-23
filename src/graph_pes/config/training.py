@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Literal, Union
 import yaml
 from pytorch_lightning import Callback
 
-from graph_pes.config.shared import TorchConfig
+from graph_pes.config.shared import TorchConfig, parse_dataset_collection
 from graph_pes.data.datasets import DatasetCollection
 from graph_pes.graph_pes_model import GraphPESModel
 from graph_pes.training.callbacks import VerboseSWACallback
@@ -94,10 +94,27 @@ class FittingConfig(FittingOptions):
     """Configuration for the fitting process."""
 
     trainer_kwargs: Dict[str, Any]
-    optimizer: Optimizer = Optimizer(name="AdamW", lr=1e-3, amsgrad=False)
-    scheduler: Union[LRScheduler, None] = None
+    optimizer: Union[Optimizer, Dict[str, Any], None] = None
+    scheduler: Union[LRScheduler, Dict[str, Any], None] = None
     swa: Union[SWAConfig, None] = None
     callbacks: List[Callback] = field(default_factory=list)
+
+    def get_optimizer(self) -> Optimizer:
+        if isinstance(self.optimizer, Optimizer):
+            return self.optimizer
+
+        kwargs = {"name": "Adam", "lr": 1e-3}
+        kwargs.update(self.optimizer or {})
+        return Optimizer(**kwargs)
+
+    def get_scheduler(self) -> LRScheduler | None:
+        if isinstance(self.scheduler, LRScheduler):
+            return self.scheduler
+
+        if self.scheduler is None:
+            return None
+
+        return LRScheduler(**self.scheduler)
 
 
 @dataclass
@@ -120,7 +137,7 @@ class TrainingConfig:
     """
 
     model: Union[GraphPESModel, Dict[str, GraphPESModel]]
-    data: DatasetCollection
+    data: Union[DatasetCollection, Dict[str, Any]]
     loss: Union[Loss, TotalLoss, Dict[str, Loss], List[Loss]]
     fitting: FittingConfig
     general: GeneralConfig
@@ -128,18 +145,8 @@ class TrainingConfig:
 
     ### Methods ###
 
-    def get_data(self) -> DatasetCollection:
-        if isinstance(self.data, DatasetCollection):
-            return self.data
-        elif isinstance(self.data, dict):
-            return DatasetCollection(**self.data)
-
-        raise ValueError(
-            "Expected to be able to parse a DatasetCollection instance or a "
-            "dictionary mapping 'train' and 'valid' keys to GraphDataset "
-            "instances from the data config, but got something else: "
-            f"{self.data}"
-        )
+    def get_data(self, model: GraphPESModel) -> DatasetCollection:
+        return parse_dataset_collection(self.data, model)
 
     @classmethod
     def defaults(cls) -> dict:

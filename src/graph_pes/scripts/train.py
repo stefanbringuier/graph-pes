@@ -144,13 +144,13 @@ Output for this training run can be found at:
     model = parse_model(config.model)
     logger.debug(f"Model:\n{model}")
 
-    data = config.get_data()
+    data = config.get_data(model)
     logger.debug(f"Data:\n{data}")
 
-    optimizer = config.fitting.optimizer
+    optimizer = config.fitting.get_optimizer()
     logger.debug(f"Optimizer:\n{optimizer}")
 
-    scheduler = config.fitting.scheduler
+    scheduler = config.fitting.get_scheduler()
     _scheduler_str = scheduler if scheduler is not None else "No LR scheduler."
     logger.debug(f"Scheduler:\n{_scheduler_str}")
 
@@ -190,11 +190,11 @@ To fix: Ensure your model cutoff matches your dataset cutoff."""  # noqa: E501
         "train": data.train,
         "valid": data.valid,
     }
-    if config.data.test is not None:
-        if isinstance(config.data.test, dict):
-            test_datasets.update(config.data.test)
+    if data.test is not None:
+        if isinstance(data.test, dict):
+            test_datasets.update(data.test)
         else:
-            test_datasets["test"] = config.data.test
+            test_datasets["test"] = data.test
 
     if isinstance(trainer.logger, WandbLogger):
         trainer.logger._log_epoch = False

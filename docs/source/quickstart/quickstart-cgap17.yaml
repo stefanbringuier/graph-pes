@@ -1,5 +1,5 @@
 # define a radial cutoff to use throughout the config
-CUTOFF: 3.7  # in Å
+CUTOFF: 3.7 # in Å
 
 general:
     progress: logged
@@ -13,7 +13,7 @@ model:
     many-body:
         +NequIP:
             elements: [C]
-            cutoff: =/CUTOFF  # reference the radial cutoff defined above
+            cutoff: =/CUTOFF # reference the radial cutoff defined above
             layers: 2
             features:
                 channels: [16, 8, 4]
@@ -24,19 +24,11 @@ model:
 # ... on structures from local files ...
 data:
     train:
-        +file_dataset:
-            path: train-cgap17.xyz
-            cutoff: =/CUTOFF
-            n: 1280
-            shuffle: false
-    valid:
-        +file_dataset:
-            path: val-cgap17.xyz
-            cutoff: =/CUTOFF
-    test:
-        +file_dataset:
-            path: test-cgap17.xyz
-            cutoff: =/CUTOFF
+        path: train-cgap17.xyz
+        n: 1280
+        shuffle: false
+    valid: val-cgap17.xyz
+    test: test-cgap17.xyz
 
 # ... on both energy and forces (weighted 1:1) ...
 loss:
@@ -51,15 +43,13 @@ fitting:
         check_val_every_n_epoch: 5
 
     optimizer:
-        +Optimizer:
-            name: AdamW
-            lr: 0.01
+        name: AdamW
+        lr: 0.01
 
     scheduler:
-        +LRScheduler:
-            name: ReduceLROnPlateau
-            factor: 0.5
-            patience: 10
+        name: ReduceLROnPlateau
+        factor: 0.5
+        patience: 10
 
     loader_kwargs:
         batch_size: 64
