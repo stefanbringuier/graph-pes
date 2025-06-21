@@ -21,6 +21,9 @@ Losses
 
 .. autoclass:: graph_pes.training.loss.PerAtomEnergyLoss
 
+.. autoclass:: graph_pes.training.loss.EquigradLoss
+    :show-inheritance:
+
 
 Metrics
 =======

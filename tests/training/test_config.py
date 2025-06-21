@@ -27,18 +27,14 @@ def test_model_instantiation():
     # 1. test single model with no params:
     dummy_data = get_dummy_config_dict()
     dummy_data["model"] = "+SchNet()"
-    dummy_data, config = instantiate_config_from_dict(
-        dummy_data, TrainingConfig
-    )
+    dummy_data, config = instantiate_config_from_dict(dummy_data, TrainingConfig)
     model = parse_model(config.model)
     assert isinstance(model, SchNet)
 
     # 2. test single model with params:
     dummy_data = get_dummy_config_dict()
     dummy_data["model"] = {"+SchNet": {"cutoff": 3.7}}
-    dummy_data, config = instantiate_config_from_dict(
-        dummy_data, TrainingConfig
-    )
+    dummy_data, config = instantiate_config_from_dict(dummy_data, TrainingConfig)
     model = parse_model(config.model)
     assert isinstance(model, SchNet)
     assert model.cutoff == 3.7
@@ -52,9 +48,7 @@ many-body:
    +SchNet: {cutoff: 3.7}
 """
     )
-    dummy_data, config = instantiate_config_from_dict(
-        dummy_data, TrainingConfig
-    )
+    dummy_data, config = instantiate_config_from_dict(dummy_data, TrainingConfig)
     model = parse_model(config.model)
     assert isinstance(model, AdditionModel)
     assert len(model.models) == 2
@@ -80,12 +74,14 @@ many-body:
 
 def test_optimizer():
     dummy_data = get_dummy_config_dict()
-    user_data = yaml.safe_load("""
+    user_data = yaml.safe_load(
+        """
     fitting:
         optimizer:
             name: Adam
             lr: 0.001
-    """)
+    """
+    )
     actual_data = nested_merge(dummy_data, user_data)
     _, config = instantiate_config_from_dict(actual_data, TrainingConfig)
 
@@ -102,13 +98,15 @@ def test_scheduler():
     assert scheduler is None
 
     # with default scheduler
-    user_data = yaml.safe_load("""
+    user_data = yaml.safe_load(
+        """
     fitting:
         scheduler:
             name: StepLR
             step_size: 10
             gamma: 0.1
-    """)
+    """
+    )
     dummy_data = get_dummy_config_dict()
     actual_data = nested_merge(dummy_data, user_data)
     _, config = instantiate_config_from_dict(actual_data, TrainingConfig)
@@ -125,9 +123,7 @@ def test_scheduler():
 def test_extra_keys():
     dummy_data = get_dummy_config_dict()
     dummy_data["extra_key"] = "extra_value"
-    final_data, config = instantiate_config_from_dict(
-        dummy_data, TrainingConfig
-    )
+    final_data, config = instantiate_config_from_dict(dummy_data, TrainingConfig)
     assert "extra_key" in final_data
 
 
@@ -160,6 +156,62 @@ def test_parse_loss():
     # 5. a non-Loss should raise an error
     with pytest.raises(ValueError):
         parse_loss(1)  # type: ignore
+
+
+def test_equigrad_in_loss_config():
+    # Test that EquigradLoss is used/added to config
+    from graph_pes.training.loss import EquigradLoss
+
+    dummy_data = get_dummy_config_dict()
+
+    # Add multiple loss components
+    dummy_data["loss"] = [
+        {"+PerAtomEnergyLoss": {"weight": 10.0}},
+        {"+ForceRMSE": {"weight": 1.0}},
+        {"+EquigradLoss": {"weight": 0.1, "rotation_mag": 0.01}},
+    ]
+
+    _, config = instantiate_config_from_dict(dummy_data, TrainingConfig)
+
+    total_loss = parse_loss(config.loss)
+
+    assert isinstance(total_loss, TotalLoss)
+    assert len(total_loss.losses) == 3
+
+    # Check we have EquigradLoss
+    equigrad_losses = [
+        loss for loss in total_loss.losses if isinstance(loss, EquigradLoss)
+    ]
+    assert (
+        len(equigrad_losses) == 1
+    ), "EquigradLoss not found in parsed losses or found multiple times"
+
+    equigrad_loss = equigrad_losses[0]
+    assert equigrad_loss.weight == 0.1, "Custom weight not applied"
+    assert equigrad_loss.rotation_mag == 0.01, "Custom rotation_mag not applied"
+
+    dummy_data["loss"] = [
+        {"+PerAtomEnergyLoss": {"weight": 10.0}},
+        {"+ForceRMSE": {"weight": 1.0}},
+        {"+EquigradLoss": {}},
+    ]
+
+    # Use pipeline
+    _, config = instantiate_config_from_dict(dummy_data, TrainingConfig)
+
+    total_loss = parse_loss(config.loss)
+
+    assert isinstance(total_loss, TotalLoss)
+
+    # Find EquigradLoss
+    equigrad_loss = next(
+        (loss for loss in total_loss.losses if isinstance(loss, EquigradLoss)), None
+    )
+
+    assert equigrad_loss is not None, "EquigradLoss not found in parsed losses"
+    assert equigrad_loss.weight == 1.0, "Default weight not applied"
+    assert equigrad_loss.rotation_mag == 0.01, "Default rotation_mag not applied"
+    assert equigrad_loss.method_type == "forward", "Default method_type not applied"
 
 
 def test_parse_model():
